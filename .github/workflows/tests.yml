@@ -15,14 +15,64 @@ on:
         type: string
 
 jobs:
+  # The suite's result is a function of the tracked files, so key "already tested" on the tree
+  # hash — git's content hash of every path, mode and blob — rather than on the commit. A PR's
+  # merge ref and the merge commit that lands on main are different commits with the identical
+  # tree, so the run on the PR already covered, byte for byte, what a push-to-main run would
+  # repeat. Checked against the last four merges (#113, #116, #121, #122): recomputing each PR's
+  # merge tree reproduces the landed tree exactly. Squash and rebase merges land the same tree too.
+  #
+  # The converse is the safety property, and it is why this keys on content rather than on a green
+  # tick for a SHA. If main moved under the PR, the merge yields a different tree, no marker
+  # exists, and the matrix runs. The stale-base case — two PRs green apart, broken together — is
+  # caught here without a separate push-to-main run existing to catch it.
+  #
+  # Bucketed by month because global.json and the dated runner labels get the toolchain close to
+  # frozen but not to a freeze: windows-2025 and macos-26 still take monthly image refreshes that
+  # can move the installed SDK set underneath the pin. A marker is trusted only within the month
+  # it was written, which bounds how stale a green can be for about one extra run a month.
+  check-tested:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      marker: ${{ steps.probe.outputs.marker }}
+      green: ${{ steps.probe.outputs.green }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Look for a marker on this tree
+        id: probe
+        shell: bash
+        run: |
+          marker="refs/tested/$(date -u +%Y%m)/$(git rev-parse 'HEAD^{tree}')"
+          echo "marker=$marker" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code origin "$marker" >/dev/null 2>&1; then
+            echo "green=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::These bytes already passed the full matrix ($marker) — skipping it."
+          else
+            echo "green=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: check-tested
+    if: needs.check-tested.outputs.green != 'true'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-latest is paused while #88 is open: the markdown preview renderer returns null
-        # on Linux, so two tests fail there and nothing can merge. The linux-x64 release build is
-        # paused with it rather than shipping untested — restore both together when #88 is fixed.
-        os: [windows-latest, macos-latest]
+        # Linux is paused while #88 is open: the markdown preview renderer returns null there, so
+        # two tests fail and nothing can merge. The linux-x64 release build is paused with it
+        # rather than shipping untested — restore both together when #88 is fixed.
+        #
+        # Dated rather than -latest so an image rollover is a commit and not a surprise. That is
+        # not hypothetical: macos-latest has already moved from macOS 15 to macOS 26 under this
+        # repo, with nothing in here recording it. The label fixes the OS; global.json fixes the
+        # SDK that the image would otherwise pick by "newest installed".
+        os: [windows-2025, macos-26]
 
     runs-on: ${{ matrix.os }}
 
@@ -48,10 +98,13 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      # No setup-dotnet: both runner images already ship the 10.0.x SDK this builds with, and the
+      # No setup-dotnet: both runner images already ship the SDK global.json asks for, and the
       # action was downloading a second identical copy — 297MB and ~32s on Windows, where it failed
-      # to notice the preinstalled one that macOS found in a second. `dotnet` is on PATH, and with
-      # no global.json it selects the newest installed SDK, which builds net10.0 whatever the patch.
+      # to notice the preinstalled one that macOS found in a second. `dotnet` is on PATH and obeys
+      # global.json, which pins the 10.0.3xx band both images carry (10.0.302 on each today) rather
+      # than taking whatever is newest — that was how the build silently changed SDK. An image that
+      # stops shipping the band fails the build loudly, which is the point: it is a real toolchain
+      # change and deserves a commit.
 
       # Set here rather than in a job-level env block, where the runner context does not exist.
       # runner.temp is the fast ephemeral disk on Windows (D:) rather than the C: system disk the
@@ -110,3 +163,27 @@ jobs:
         run: >-
           dotnet test -c Release --no-build --logger "console;verbosity=normal"
           --blame-hang --blame-hang-timeout 5m
+
+  # Records the tree as green so the next caller can skip the matrix. Deliberately not an `if`:
+  # `needs: test` on a matrix job resolves to success only when every leg passed, and a skipped
+  # `test` skips this too — which is the behaviour wanted when the tree was already marked.
+  #
+  # A ref outside refs/heads and refs/tags is invisible in the tag and branch UI and is not fetched
+  # by a normal clone, so the cost is one 40-byte ref per distinct tested tree and no clutter.
+  #
+  # Non-fatal on purpose: a pull request from a fork gets a read-only token and cannot push. Losing
+  # a marker only means the next caller runs the matrix, which is what it did before this existed —
+  # so the failure mode is a slow release, never an unverified one.
+  mark-tested:
+    needs: [check-tested, test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Record the tree as tested
+        continue-on-error: true
+        run: git push origin "HEAD:${{ needs.check-tested.outputs.marker }}"

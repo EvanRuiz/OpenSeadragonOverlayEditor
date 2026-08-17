@@ -11,20 +11,33 @@ on:
         required: true
 
 jobs:
-  # Gate: nothing is published unless the full matrix passes. This must run before
-  # create-release, which publishes a non-draft GitHub Release as its first act — testing any
-  # later could not stop a bad release, only discover one.
+  # Gate: nothing is published unless these exact bytes have passed the full matrix. This must run
+  # before create-release, which publishes a non-draft GitHub Release as its first act — testing
+  # any later could not stop a bad release, only discover one.
+  #
+  # It is still a gate now that tests.yml can skip: the skip happens only when a marker proves the
+  # identical tree already passed every leg, so "tested" is as true as it was when the matrix ran
+  # here unconditionally. What changes is the wait — tagging a tree that CI already covered costs
+  # seconds instead of the full matrix, which is the whole point of tagging right after a merge.
   #
   # For a tag push the triggering ref is already the tag; for workflow_dispatch it is the
   # default branch, so the tag is passed explicitly (same reason as the fix in #68).
   test:
+    permissions:
+      contents: write
     uses: ./.github/workflows/tests.yml
     with:
       ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
 
   create-release:
     needs: test
-    runs-on: ubuntu-latest
+    # A dependency that is skipped rather than successful skips its dependents by default, and a
+    # release that silently does not happen is exactly the #94 failure mode: a green-looking run
+    # with nothing in it. tests.yml is built so its caller still reports success when the matrix
+    # is skipped, but that is not a property to bet a release on, so accept both results
+    # explicitly and let anything else — failure, cancellation — stop here.
+    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     outputs:
@@ -65,21 +78,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Dated labels for the same reason as the test matrix, and it matters more here: what
+        # ships is built on these images, and macos-latest silently moving from macOS 15 to
+        # macOS 26 would have changed the toolchain behind a published binary with no commit
+        # anywhere recording it. Kept in step with tests.yml so what is released is built on the
+        # image the suite ran on.
         include:
-          - os: windows-latest
+          - os: windows-2025
             rid: win-x64
             profile: Windows-x64
             publish-dir: bin/x64/Release/net10.0/win-x64/publish
-          - os: windows-latest
+          - os: windows-2025
             rid: win-arm64
             profile: Windows-ARM64
             publish-dir: bin/ARM64/Release/net10.0/win-arm64/publish
-          - os: macos-latest
+          - os: macos-26
             rid: osx-arm64
             profile: macOS-ARM64
             publish-dir: bin/ARM64/Release/net10.0/osx-arm64/publish
             app-bundle: bin/ARM64/Release/net10.0/osx-arm64/Dir2Site.app
-          - os: macos-latest
+          - os: macos-26
             rid: osx-x64
             profile: macOS-x64
             publish-dir: bin/x64/Release/net10.0/osx-x64/publish
@@ -88,7 +106,7 @@ jobs:
           # would publish a linux-x64 release that nothing has run against — worse than not
           # shipping one. Left in place rather than deleted so restoring it is an uncomment;
           # that is part of closing #88.
-          # - os: ubuntu-latest
+          # - os: ubuntu-24.04
           #   rid: linux-x64
           #   profile: linux-x64
           #   publish-dir: bin/x64/Release/net10.0/linux-x64/publish
