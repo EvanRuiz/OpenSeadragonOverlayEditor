@@ -112,6 +112,15 @@ public static class SourceLeftovers
             try { Directory.Delete(previews, recursive: true); removed = true; } catch { }
         }
 
+        // The stamp sits beside that folder rather than in it, so it has to be named here too. Left
+        // behind it is inert — it describes previews that are gone, and a missing preview is stale
+        // whatever a stamp says — but it is still litter for a file nobody has any more.
+        var stamp = PreviewGenerator.StampPath(sourcePath);
+        if (File.Exists(stamp))
+        {
+            try { File.Delete(stamp); removed = true; } catch { }
+        }
+
         if (removed) progress?.Report($"Removed the settings and previews for {name}");
     }
 

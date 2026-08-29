@@ -118,6 +118,7 @@ public static class YamlParser
                 if (parse(yaml) is { } artifact)
                 {
                     ReportUnknownKeys(yaml, yamlPath, artifact.GetType(), warnings);
+                    artifact.ScaffoldedYaml = scaffolded;
                     // The file says what it is, and the model that parsed it agrees.
                     if (!scaffolded)
                         EnsureDefaultKeys(
@@ -137,6 +138,7 @@ public static class YamlParser
                 if (attempt(yaml) is { } artifact)
                 {
                     ReportUnknownKeys(yaml, yamlPath, artifact.GetType(), warnings);
+                    artifact.ScaffoldedYaml = scaffolded;
                     // The files with no type: token at all are the oldest in a project, and so the
                     // likeliest to predate a setting. Backfilling them is the point, not an edge —
                     // but nothing here resolved a type, so go on the extension rather than on

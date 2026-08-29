@@ -106,7 +106,7 @@ public static class DirectoryTraverser
                 // The folder's own introduction, not one of its contents: it is rendered at the
                 // top of this folder's page and never becomes a card, a page or an artifact. No
                 // yaml is written for it either — there is nothing to caption or credit, and a
-                // file that exists to be prose shouldn't grow a settings file nobody asked for.
+                // file that exists to be prose shouldn't grow a yaml nobody asked for.
                 if (IsFolderIntro(file))
                 {
                     allFiles.Add(file);
@@ -122,6 +122,13 @@ public static class DirectoryTraverser
                 {
                     artifact.RootFolder    = rootPath;
                     artifact.TraversalRoot = traversalRoot;
+
+                    // Nothing on disk described this file until a moment ago, so whatever sits in
+                    // its previews folder was made from something else. Thrown away here, in the
+                    // scan, so that the answer survives the scan: the flag below says the same thing
+                    // and is gone by the next parse, which is how pressing Rescan used to turn the
+                    // escape hatch off between deleting a yaml and pressing Generate.
+                    if (artifact.ScaffoldedYaml) PreviewGenerator.DiscardGenerated(file);
 
                     if (!ResolveVideoTarget(file, artifact, child.YamlErrors))
                         artifact = null;
@@ -235,8 +242,14 @@ public static class DirectoryTraverser
         {
             if (!PreviewGenerator.PreviewFileExists(rootPath, declared)) return false;
 
+            // Two questions about our own thumbnail, and they catch different halves. The timestamp
+            // catches an edit in place. The stamp catches a replacement that arrived carrying an
+            // older timestamp, which the comparison reads as "the thumbnail is fine" — and asking it
+            // here rather than only inside the generator is what makes it reach anything at all: this
+            // is the survey, and a type it says nothing about is a type whose generator never runs.
             if (PreviewGenerator.IsCanonicalPreview(file, declared)
-                && PreviewGenerator.PreviewIsOlderThanSource(rootPath, declared, file))
+                && (PreviewGenerator.PreviewIsOlderThanSource(rootPath, declared, file)
+                    || PreviewGenerator.SourceIsNotWhatWeBuiltFrom(file)))
                 return false;
         }
 
@@ -268,7 +281,12 @@ public static class DirectoryTraverser
                         artifact.Type, PreviewChange(rootPath, artifact)));
             }
 
-            if (PreviewGenerator.IsPdfFile(file) && !IsCurrent(rootPath, file, artifact))
+            // A PDF's generated set is more than its thumbnails, and the rest of it is what the
+            // reader shows. IsCurrent answers for the two thumbnails the yaml names — including a
+            // hand-picked one, which stays the user's — and PdfOutputIsCurrent answers for the
+            // manifest, and so for the page images the manifest is written after.
+            if (PreviewGenerator.IsPdfFile(file)
+                && (!IsCurrent(rootPath, file, artifact) || !PreviewGenerator.PdfOutputIsCurrent(file)))
                 jobs.Add(new PreviewJob(file, artifact.TraversalRoot ?? rootPath, artifact,
                     ArtifactType.Pdf, PreviewChange(rootPath, artifact)));
 
@@ -322,6 +340,18 @@ public static class DirectoryTraverser
             CancellationToken = cancel,
         }, job =>
         {
+            // A scaffolded yaml means the app has no record of this file, so nothing sitting in
+            // the previews folder can be trusted to be of it.
+            //
+            // Unconditional, and that is the point rather than a limitation. Every other rule here
+            // infers — from a timestamp, from a recorded length — and inference can be wrong in ways
+            // the user can see and cannot correct. Deleting an artifact's yaml is the one way to
+            // say "build this again whatever you think you know", so it has to mean that with no
+            // second opinion: a stamp that agrees, a preview that looks newer, none of it gets a
+            // vote. Re-rendering a long document is the cost of the instruction, not a downside of
+            // it — nobody deletes a yaml by accident.
+            var rebuild = job.Artifact.ScaffoldedYaml;
+
             try
             {
                 switch (job.Type)
@@ -329,7 +359,8 @@ public static class DirectoryTraverser
                     case ArtifactType.Photo:
                     case ArtifactType.Deepzoom:
                     {
-                        var result = PreviewGenerator.GeneratePreviews(job.FilePath, job.TraversalRoot, progress);
+                        var result = PreviewGenerator.GeneratePreviews(
+                            job.FilePath, job.TraversalRoot, progress, rebuild);
                         if (!result.HasValue) return;
 
                         var rootPath = job.Artifact.RootFolder ?? Path.GetDirectoryName(job.FilePath) ?? string.Empty;
@@ -348,7 +379,7 @@ public static class DirectoryTraverser
                         var result = PreviewGenerator.GeneratePdfPreviewsAndPages(
                             job.FilePath, job.TraversalRoot,
                             config.PdfResizeEnabled, config.PdfMaxWidth, config.PdfQuality,
-                            progress);
+                            progress, rebuild);
                         if (!result.HasValue) return;
 
                         var pdfRoot = job.Artifact.RootFolder ?? Path.GetDirectoryName(job.FilePath) ?? string.Empty;

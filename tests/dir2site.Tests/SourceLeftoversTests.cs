@@ -39,6 +39,26 @@ public class SourceLeftoversTests : IDisposable
         Directory.CreateDirectory(At(".dir2site", stem));
         File.WriteAllText(At(".dir2site", stem, $"preview-{stem}.webp"), "thumb");
         File.WriteAllText(At(fileName + ".yaml"), $"type: photo\ncaption: {caption}\n");
+        PreviewGenerator.WriteStamp(At(fileName));
+    }
+
+    [Fact]
+    public void AWitnessedDelete_TakesTheSourceStampWithItToo()
+    {
+        // The stamp sits beside the previews folder rather than inside it, so the delete that takes
+        // the folder does not take the stamp with it — it has to be named. Left behind it is inert,
+        // because a preview that isn't there is stale whatever a stamp says, but it is litter for a
+        // file nobody has any more, and litter in a hidden folder is the kind nobody ever clears.
+        MakePhoto("Portrait.jpg", "Aunt Mary, 1912");
+        var stamp = PreviewGenerator.StampPath(At("Portrait.jpg"));
+        Assert.True(File.Exists(stamp));
+
+        File.Delete(At("Portrait.jpg"));
+        SourceLeftovers.RemoveFor(At("Portrait.jpg"));
+
+        Assert.False(File.Exists(stamp));
+        Assert.False(Directory.Exists(At(".dir2site", "Portrait")));
+        Assert.False(File.Exists(At("Portrait.jpg.yaml")));
     }
 
     // ---- what cannot be told apart is not guessed at ------------------------

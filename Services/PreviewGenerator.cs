@@ -109,17 +109,126 @@ public static class PreviewGenerator
         }
     }
 
+    /// <summary>Where an artifact's stamp lives: beside its previews folder, named for it.</summary>
+    /// <remarks>
+    /// Beside rather than inside, and that is the whole of the choice. <c>CopyFolderPreviews</c>
+    /// copies each <c>.dir2site/{stem}/</c> wholesale into the site, so anything put in there is
+    /// published and uploaded — a stamp among the page images would put every source file's size and
+    /// timestamp on the public web. Nothing enumerates <c>.dir2site/</c> itself, so a file sitting
+    /// directly in it is private by construction rather than by an exclusion someone has to remember.
+    /// </remarks>
+    internal static string StampPath(string sourceFile)
+    {
+        var dir  = Path.GetDirectoryName(sourceFile) ?? string.Empty;
+        var stem = Path.GetFileNameWithoutExtension(sourceFile);
+        return Path.Combine(dir, ".dir2site", $"{stem}.stamp");
+    }
+
     /// <summary>
-    /// Whether a derived file has to be made: it isn't there, or the source has moved on since.
+    /// The source as the stamp records it: length in bytes and last-write time, on one line.
+    /// </summary>
+    private static string? Describe(string sourceFile)
+    {
+        try
+        {
+            var info = new FileInfo(sourceFile);
+            return $"{info.Length} {info.LastWriteTimeUtc.Ticks}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Records which file the previews beside it were made from, so a later run can ask whether it
+    /// is still that file rather than which of the two is newer.
+    /// </summary>
+    /// <remarks>
+    /// Written at the end of a generator, and also when one finds it has nothing to do: an artifact
+    /// that never needs regenerating would otherwise never acquire a stamp, and stay on the weaker
+    /// rule for the life of the project.
+    /// </remarks>
+    internal static void WriteStamp(string sourceFile)
+    {
+        if (Describe(sourceFile) is not { } description) return;
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(StampPath(sourceFile))!);
+            File.WriteAllText(StampPath(sourceFile), description);
+        }
+        catch { /* a stamp we couldn't write just leaves the older rule in charge */ }
+    }
+
+    /// <summary>
+    /// Throws away everything this app generated for an artifact — the previews folder and the stamp.
+    /// </summary>
+    /// <remarks>
+    /// Called when a scan finds an artifact with no yaml and writes one, which is the app saying it
+    /// has no record of this file. Deleting rather than remembering, because remembering does not
+    /// survive: the flag lived on the parsed artifact, and a Rescan between deleting the yaml and
+    /// pressing Generate parsed the file once, consumed it, and left the second parse finding a yaml
+    /// and nothing to do. Pressing Rescan to watch the tree update is the obvious thing to do, and it
+    /// quietly turned the escape hatch off.
+    ///
+    /// Deleting is allowed here where it would not be a folder up: <c>.dir2site</c> is this app's,
+    /// and taking away what it wrote needs no more permission than overwriting it. Nothing outside
+    /// that folder is touched.
+    /// </remarks>
+    internal static void DiscardGenerated(string sourceFile)
+    {
+        var fileDir = Path.GetDirectoryName(sourceFile) ?? string.Empty;
+        var stem    = Path.GetFileNameWithoutExtension(sourceFile);
+        var dir     = Path.Combine(fileDir, ".dir2site", stem);
+
+        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { }
+        try { File.Delete(StampPath(sourceFile)); } catch { }
+    }
+
+    /// <summary>
+    /// Whether the source is a different file from the one the previews beside it were made from.
+    /// </summary>
+    /// <remarks>
+    /// This is the half a timestamp comparison cannot answer. <see cref="IsOlderThan"/> only notices
+    /// a source whose timestamp moves <em>forward</em>, and a file very often arrives with the
+    /// timestamp it had before it travelled — Put Back from the Trash, <c>cp -p</c>, <c>rsync -t</c>,
+    /// unzip, a restore from backup, a sync down from cloud storage. Replacing a document that way
+    /// left the previous one published for good, because the preview really was newer than its
+    /// source and the rule had no way to mind.
+    ///
+    /// Answers false when there is no stamp, which is what an artifact generated before stamps
+    /// existed looks like. That is deliberate: the alternative is to treat every artifact in every
+    /// existing project as changed and re-render the lot on first run. They acquire a stamp the next
+    /// time anything looks at them, and are covered from then on.
+    /// </remarks>
+    internal static bool SourceIsNotWhatWeBuiltFrom(string sourceFile)
+    {
+        string recorded;
+        try { recorded = File.ReadAllText(StampPath(sourceFile)); }
+        catch { return false; }
+
+        return Describe(sourceFile) is { } now
+            && !string.Equals(recorded.Trim(), now, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether a derived file has to be made: it isn't there, or it was not made from the file that
+    /// is on disk now.
     /// </summary>
     /// <remarks>
     /// The question every generator here asks before writing, and the one several of them used to
     /// ask as "is it there". <see cref="DirectoryTraverser"/> decides whether an artifact needs
     /// visiting on this same rule, so a job that answered a narrower one was enqueued for work it
     /// then declined to do — and did nothing, on every run, for as long as the project existed.
+    ///
+    /// Two questions rather than one, because they catch different halves. The timestamp catches an
+    /// edit in place, including on the artifacts that predate stamps; the stamp catches a
+    /// replacement that arrived carrying an older timestamp, which the comparison reads as "the
+    /// preview is fine".
     /// </remarks>
     internal static bool Stale(string derived, string source) =>
-        !File.Exists(derived) || IsOlderThan(derived, source);
+        !File.Exists(derived) || IsOlderThan(derived, source) || SourceIsNotWhatWeBuiltFrom(source);
 
     /// <summary>
     /// Makes an artifact's <c>.dir2site</c> folder — and refuses to make the artifact's own folder,
@@ -154,10 +263,15 @@ public static class PreviewGenerator
     /// Generates preview, preview-large, and full-resolution web WebP images into the .dir2site mirror tree.
     /// Returns (previewFileName, previewLargeFileName, imageFileName), or null if generation was skipped/failed.
     /// </summary>
+    /// <param name="rebuild">
+    /// Do not trust anything already in the previews folder. Set when the artifact's yaml had to
+    /// be scaffolded — see <see cref="Models.Artifact.ScaffoldedYaml"/>.
+    /// </param>
     public static (string Preview, string PreviewLarge, string Image)? GeneratePreviews(
         string sourceFile,
         string traversalRoot,
-        IProgress<string>? progress = null)
+        IProgress<string>? progress = null,
+        bool rebuild = false)
     {
         if (!IsImageFile(sourceFile))
             return null;
@@ -190,24 +304,27 @@ public static class PreviewGenerator
         //
         // It never settled either: the survey enqueues this artifact for exactly this reason, and
         // the job then did nothing, so the same work was proposed and counted on every single run.
-        if (Stale(previewPath, sourceFile))
+        if (rebuild || Stale(previewPath, sourceFile))
         {
             progress?.Report($"Generating preview: {fileName}");
             GenerateThumbnail(sourceFile, previewPath, 800, 600);
         }
 
-        if (Stale(previewLargePath, sourceFile))
+        if (rebuild || Stale(previewLargePath, sourceFile))
         {
             progress?.Report($"Generating preview (large): {fileName}");
             GenerateThumbnail(sourceFile, previewLargePath, 1200, 900);
         }
 
-        if (Stale(imagePath, sourceFile))
+        if (rebuild || Stale(imagePath, sourceFile))
         {
             progress?.Report($"Generating web image: {fileName}");
             GenerateWebImage(sourceFile, imagePath);
         }
 
+        // Reached whether or not any of the three above had work to do, which is the point: an
+        // artifact nobody ever has to regenerate would otherwise never acquire a stamp.
+        WriteStamp(sourceFile);
         return (previewFileName, previewLargeFileName, imageFileName);
     }
 
@@ -262,6 +379,9 @@ public static class PreviewGenerator
         GenerateThumbnail(poster, previewPath, 800, 450);
         GenerateThumbnail(poster, previewLargePath, 1200, 675);
 
+        // The .url is the source here, and re-pointing it at another video is exactly the change a
+        // timestamp comparison can miss when the rewritten shortcut keeps its old one.
+        WriteStamp(sourceFile);
         return (previewFileName, previewLargeFileName);
     }
 
@@ -289,6 +409,33 @@ public static class PreviewGenerator
     }
 
     /// <summary>
+    /// Whether a PDF's generated set is all there, and all made from the document on disk now.
+    /// </summary>
+    /// <remarks>
+    /// A PDF's output is not one file but four kinds: two thumbnails, a BookReader manifest, and a
+    /// page image per page. The manifest stands in for the pages because it is written after the
+    /// last one, so a manifest that is present and current means every page image was written by the
+    /// run that wrote it.
+    ///
+    /// That ordering is also why asking about the thumbnails alone was wrong. They are written from
+    /// page one, <em>inside</em> the page loop, so a run cancelled part way — or one that threw on a
+    /// later page, which <c>ExecutePreviewJobs</c> swallows as a failed preview — leaves them behind
+    /// with no manifest. <see cref="DirectoryTraverser"/> then declared the artifact finished on
+    /// every run from then on: the card looked right, the reader had no manifest, and regenerating
+    /// could not repair it because nothing was ever enqueued again.
+    /// </remarks>
+    public static bool PdfOutputIsCurrent(string sourceFile)
+    {
+        var fileDir  = Path.GetDirectoryName(sourceFile) ?? string.Empty;
+        var stem     = Path.GetFileNameWithoutExtension(sourceFile);
+        var dir2site = Path.GetFullPath(Path.Combine(fileDir, ".dir2site", stem));
+
+        return !Stale(Path.Combine(dir2site, $"preview-{stem}.webp"),    sourceFile)
+            && !Stale(Path.Combine(dir2site, $"preview-lg-{stem}.webp"), sourceFile)
+            && !Stale(Path.Combine(dir2site, $"{stem}.bookreader.json"), sourceFile);
+    }
+
+    /// <summary>
     /// Renders all PDF pages, writes a BookReader JSON, and generates WebP catalog thumbnails
     /// from the first page. Returns (previewFileName, previewLargeFileName), or null on failure.
     /// Pages are kept as JPEG only when the original binary JPEG is extracted without re-encoding;
@@ -300,7 +447,8 @@ public static class PreviewGenerator
         bool resizeEnabled,
         int maxWidth,
         int quality,
-        IProgress<string>? progress = null)
+        IProgress<string>? progress = null,
+        bool rebuild = false)
     {
         if (!IsPdfFile(sourceFile)) return null;
 
@@ -323,10 +471,13 @@ public static class PreviewGenerator
         // Everything already rendered, and rendered from this PDF rather than an earlier one that
         // had the same name. Without the second half, replacing a document in place kept the old
         // document's page images — the whole reader would still be showing the previous version.
-        if (!Stale(previewPath, sourceFile)
-            && !Stale(previewLargePath, sourceFile)
-            && !Stale(bookReaderJsonPath, sourceFile))
+        if (!rebuild && PdfOutputIsCurrent(sourceFile))
+        {
+            // Nothing to do, and the moment to say what it was done from: an artifact nobody ever
+            // has to regenerate would otherwise never acquire a stamp.
+            WriteStamp(sourceFile);
             return (previewFileName, previewLargeFileName);
+        }
 
         var fileName    = Path.GetFileName(sourceFile);
         var parentName  = Path.GetFileName(fileDir);
@@ -338,6 +489,9 @@ public static class PreviewGenerator
             (false, false) => $"{grandParent}/{parentName}/{fileName}",
         };
         var pages = new List<BookReaderPage>();
+
+        // The names this document's own pages will have, so everything else in the folder can go.
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         using var pdfPigDoc = UglyToad.PdfPig.PdfDocument.Open(sourceFile);
         int pageCount = pdfPigDoc.NumberOfPages;
@@ -355,10 +509,11 @@ public static class PreviewGenerator
 
             var pageName = keepJpeg ? $"page-{pageNum:D4}.jpg" : $"page-{pageNum:D4}.webp";
             var pagePath = Path.Combine(pagesDir, pageName);
+            written.Add(pageName);
 
             // Same reasoning as the short-circuit above, one page at a time: a page image older than
             // the PDF it came from is a page of the document that used to be here.
-            if (Stale(pagePath, sourceFile))
+            if (rebuild || Stale(pagePath, sourceFile))
             {
                 if (keepJpeg)
                 {
@@ -421,6 +576,21 @@ public static class PreviewGenerator
                 }
             }
 
+            else
+            {
+                // The page image is already on disk and this run did not make it, so nothing above
+                // measured it. TryGetOriginalJpeg leaves both dimensions at zero for any page that
+                // is not one embedded JPEG — a vector or text page, which is most pages in most
+                // documents — and every branch that would have filled them in is inside the render.
+                //
+                // The manifest is written from these numbers and the reader lays its pages out from
+                // the manifest, so a run repairing a missing manifest over intact page images wrote
+                // a book of zero-sized pages. It could not correct itself either: the manifest was
+                // then present and current, so PdfOutputIsCurrent said yes for good. Measuring what
+                // is actually there is the whole fix, and it costs a header read.
+                (imgWidth, imgHeight) = Measure(pagePath, imgWidth, imgHeight);
+            }
+
             pages.Add(new BookReaderPage(imgWidth, imgHeight, $"{stem}_pages/{pageName}", pageNum.ToString()));
 
             if (pageIndex == 0)
@@ -432,7 +602,9 @@ public static class PreviewGenerator
             }
         }
 
+        RemoveSupersededPages(pagesDir, written);
         WriteBookReaderJson(bookReaderJsonPath, pages);
+        WriteStamp(sourceFile);
         return (previewFileName, previewLargeFileName);
     }
 
@@ -554,6 +726,47 @@ public static class PreviewGenerator
         image.Crop(width, height, Gravity.Center);
         image.Quality = 80;
         image.Write(dest, MagickFormat.WebP);
+    }
+
+    /// <summary>
+    /// The size of a page image already on disk, or what the caller had if it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// <c>MagickImageInfo</c> rather than <c>MagickImage</c>: it reads the header and stops, so
+    /// asking the size of a page costs nothing like decoding one. Falling back to the caller's
+    /// values on failure keeps an unreadable page no worse than it was.
+    /// </remarks>
+    private static (int Width, int Height) Measure(string path, int fallbackWidth, int fallbackHeight)
+    {
+        try
+        {
+            var info = new MagickImageInfo(path);
+            return ((int)info.Width, (int)info.Height);
+        }
+        catch
+        {
+            return (fallbackWidth, fallbackHeight);
+        }
+    }
+
+    /// <summary>Takes away page images this document has no page for.</summary>
+    /// <remarks>
+    /// Pages are written one per page and nothing used to remove the rest, so a document replaced by
+    /// a shorter one kept the tail of the previous one — and so did a page that changed encoding,
+    /// because <c>page-0001.jpg</c> and <c>page-0001.webp</c> are different files and only one of
+    /// them is being written. Neither was reachable from the manifest, but both were copied into the
+    /// site wholesale and registered by the ledger, so the orphan sweep never offered them up
+    /// either: published and uploaded, belonging to a document that is gone.
+    /// </remarks>
+    private static void RemoveSupersededPages(string pagesDir, HashSet<string> keep)
+    {
+        try
+        {
+            foreach (var file in Directory.GetFiles(pagesDir))
+                if (!keep.Contains(Path.GetFileName(file)))
+                    File.Delete(file);
+        }
+        catch { /* a page we couldn't remove is offered by the sweep instead */ }
     }
 
     private static void WriteBookReaderJson(string path, List<BookReaderPage> pages)
