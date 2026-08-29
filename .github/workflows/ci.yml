@@ -9,7 +9,18 @@ on:
 
 jobs:
   # Shared with release.yml so pull requests and releases run the identical matrix.
+  #
+  # The push-to-main trigger stays even though the pull request already tested these bytes: the
+  # merge commit's tree matches the PR merge ref's, so tests.yml finds the marker and skips the
+  # matrix in seconds. Keeping the trigger costs nothing and still reports honestly in the case
+  # that matters — if main moved under the PR the tree differs, no marker exists, and the full
+  # matrix runs here rather than at release time.
+  #
+  # contents: write is what lets tests.yml push its marker; a called workflow cannot hold more
+  # permission than its caller grants.
   test:
+    permissions:
+      contents: write
     uses: ./.github/workflows/tests.yml
 
   # A workflow whose expressions don't evaluate never creates a job, so it fails as an empty red
@@ -21,7 +32,7 @@ jobs:
   # specific mistake. Linux is fine here even while the test matrix is paused on it (#88): this
   # never builds or runs the app.
   lint-workflows:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       # Pinned rather than :latest so a new release can't fail the build on a rule nobody added.
