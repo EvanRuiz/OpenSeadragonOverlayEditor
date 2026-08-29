@@ -29,7 +29,13 @@ public static class GenerateCommand
     /// Generates <paramref name="projectFolder"/>'s site. Avalonia must already be initialised —
     /// the templates and the article thumbnails' fonts are loaded through its asset system.
     /// </summary>
-    public static int Run(string projectFolder, bool quiet, TextWriter output, TextWriter error)
+    /// <param name="forceClean">
+    /// Remove the two things this command otherwise only lists, rather than leaving them for the
+    /// app. Both are decisions it will not take on its own — they are the user's files — so this is
+    /// how the user takes them, once, in writing, in their own script.
+    /// </param>
+    public static int Run(
+        string projectFolder, bool quiet, TextWriter output, TextWriter error, bool forceClean = false)
     {
         if (!Directory.Exists(projectFolder))
         {
@@ -116,6 +122,17 @@ public static class GenerateCommand
             var root = DirectoryTraverser.BuildTree(projectFolder, files, artifacts, tracker, updatedYamls);
             ReportUpdatedYamls(updatedYamls, output);
 
+            // Nothing was watching — nothing ever is, from here — so this run is the unwitnessed
+            // case by definition, and the previews and stamps of artifacts that have gone are still
+            // lying about. They are ours, so they go without asking, the same as in the app. Before
+            // the previews stage, so a stem a different file has taken over starts from nothing.
+            //
+            // Only that half. The yamls the same sweep finds are the user's captions and credits,
+            // and this command has nobody to ask — so it leaves them alone rather than deciding for
+            // them, which is the same call it makes about files in _site it cannot account for.
+            Stage("Deleting previews of artifacts that have gone...");
+            SourceLeftovers.RemoveGeneratedLeftovers(projectFolder, tracker);
+
             // Previews first, so the config's PDF resize and quality settings reach what they make.
             Stage("Generating previews...");
             DirectoryTraverser.GeneratePreviews(root, config, tracker);
@@ -138,12 +155,41 @@ public static class GenerateCommand
         // Reported, never removed. In the app this is a question with a Delete button; a scripted
         // run has nobody to ask, and deleting a published file because a scan didn't see its source
         // is not a thing to do on the strength of an exit code.
-        if (result.Orphans.Count > 0)
+        // The two things this run found and will not decide about on its own. They were not reported
+        // alike: the site's orphans were listed and the leftover yamls were passed over in silence,
+        // so a project generated only from a script accumulated the captions of artifacts that had
+        // gone with nothing ever saying so. Same situation, same treatment.
+        var leftoverYamls = SourceLeftovers.FindLeftoverYamls(projectFolder);
+
+        Report(output, result.Orphans.Count, "file(s) in _site no longer have a source:",
+            result.Orphans, forceClean);
+
+        Report(output, leftoverYamls.Count, "yaml file(s) have no artifact left beside them:",
+            leftoverYamls.Select(y => Path.GetRelativePath(projectFolder, y)), forceClean);
+
+        if (forceClean)
         {
-            output.WriteLine($"{result.Orphans.Count} file(s) in _site no longer have a source:");
-            foreach (var orphan in result.Orphans)
-                output.WriteLine($"  {orphan}");
-            output.WriteLine("Left in place. Open the project in the app to remove them.");
+            var removed = SiteGenerator.RemoveOrphans(projectFolder + Path.DirectorySeparatorChar + "_site",
+                result.Orphans);
+            foreach (var failure in removed.Errors) error.WriteLine($"dir2site: {failure}");
+
+            foreach (var stranded in leftoverYamls)
+            {
+                // Asked at the delete, not left to the walk that found it. This is the one deletion
+                // here with no human in front of it, so it is the one that most wants the boundary
+                // checked where the boundary matters.
+                if (!SourceListing.ResolvesInside(projectFolder, stranded))
+                {
+                    error.WriteLine($"dir2site: {stranded}: not removed — it resolves outside the project folder.");
+                    continue;
+                }
+
+                try { File.Delete(stranded); }
+                catch (Exception ex)
+                {
+                    error.WriteLine($"dir2site: {Path.GetRelativePath(projectFolder, stranded)}: {ex.Message}");
+                }
+            }
         }
 
         if (result.Errors.Count == 0) return Success;
@@ -167,5 +213,27 @@ public static class GenerateCommand
             : $"{updatedYamls.Count:N0} yaml files";
         output.WriteLine($"Added the settings that were missing to {subject}. " +
                          "Values you had already written are unchanged.");
+    }
+
+    /// <summary>
+    /// Lists one kind of thing the run found and would not act on, and says how to make it act.
+    /// </summary>
+    /// <remarks>
+    /// One method for both kinds on purpose. They are the same situation — something is here that no
+    /// longer belongs to anything, and deciding is the user's — and when each had its own code one of
+    /// them was written and the other was not, which is how the yamls went unmentioned for as long as
+    /// they did.
+    /// </remarks>
+    private static void Report(
+        TextWriter output, int count, string heading, IEnumerable<string> items, bool forceClean)
+    {
+        if (count == 0) return;
+
+        output.WriteLine($"{count} {heading}");
+        foreach (var item in items) output.WriteLine($"  {item}");
+
+        output.WriteLine(forceClean
+            ? "Removed, as --force-clean asked."
+            : "Left in place. Open the project in the app, or re-run with --force-clean to remove them.");
     }
 }

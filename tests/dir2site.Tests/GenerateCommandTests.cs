@@ -39,11 +39,12 @@ public class GenerateCommandTests : IDisposable
             $"type: photo\ncaption: {caption}\n");
     }
 
-    private (int Code, string Out, string Error) Run(bool quiet = true, string? folder = null)
+    private (int Code, string Out, string Error) Run(
+        bool quiet = true, string? folder = null, bool forceClean = false)
     {
         var output = new StringWriter();
         var error  = new StringWriter();
-        var code = GenerateCommand.Run(folder ?? _root, quiet, output, error);
+        var code = GenerateCommand.Run(folder ?? _root, quiet, output, error, forceClean);
         return (code, output.ToString(), error.ToString());
     }
 
@@ -215,5 +216,115 @@ public class GenerateCommandTests : IDisposable
         // The app's defaults: the folder's own name, and a copyright line for this year.
         Assert.Contains(Path.GetFileName(_root), File.ReadAllText(configPath));
         Assert.Contains("dir2site.yaml", output);
+    }
+
+    [AvaloniaFact]
+    public void ItTakesAwayThePreviewsOfArtifactsThatHaveGone()
+    {
+        // The command line is the unwitnessed case by definition — nothing is ever watching from
+        // here — so the previews and stamps of deleted artifacts are exactly what it finds lying
+        // about. They are this app's own files, so they go without asking, as they do in the app.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        WriteArtifact("Drawings", "A Drawing");
+        Run();
+
+        var plate = Path.Combine(_root, "Prints", "Plate.jpg");
+        var previews = Path.Combine(_root, "Prints", ".dir2site", "Plate");
+        Assert.True(Directory.Exists(previews), "setup: the run made no previews to leave behind");
+
+        File.Delete(plate);
+        Run();
+
+        Assert.False(Directory.Exists(previews), "the previews of a deleted artifact were kept");
+        Assert.False(File.Exists(PreviewGenerator.StampPath(plate)), "its stamp was kept");
+    }
+
+    [AvaloniaFact]
+    public void ItLeavesTheUsersYamlAlone()
+    {
+        // The other half of the same sweep, and the half this command may not act on: a yaml holds
+        // captions and credits the user wrote, and there is nobody here to ask about it. The same
+        // call it already makes about files in _site it cannot account for — list, never delete.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        WriteArtifact("Drawings", "A Drawing");
+        Run();
+
+        File.Delete(Path.Combine(_root, "Prints", "Plate.jpg"));
+        Run();
+
+        Assert.True(File.Exists(Path.Combine(_root, "Prints", "Plate.jpg.yaml")),
+            "the user's yaml was deleted by a command that has nobody to ask");
+    }
+
+    // ---- what it found and will not decide about ----------------------------
+
+    /// <summary>A project with one artifact deleted, so both kinds of leftover exist at once.</summary>
+    private void MakeLeftovers()
+    {
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        WriteArtifact("Drawings", "A Drawing");
+        Run();
+
+        File.Delete(Path.Combine(_root, "Prints", "Plate.jpg"));
+        File.WriteAllText(Path.Combine(_root, "_site", "CNAME"), "example.test\n");
+    }
+
+    [AvaloniaFact]
+    public void ItSaysWhatItFoundAndWillNotRemove()
+    {
+        // Both kinds, reported alike. They were not: files in _site were listed and leftover yamls
+        // were passed over in silence, so a project only ever generated from a script accumulated
+        // the captions of artifacts that had gone with nothing anywhere saying so.
+        MakeLeftovers();
+
+        var (code, output, _) = Run();
+
+        Assert.Equal(GenerateCommand.Success, code);
+        Assert.Contains("CNAME", output);
+        Assert.Contains(Path.Combine("Prints", "Plate.jpg.yaml"), output);
+        Assert.Contains("--force-clean", output);
+
+        // Said, not done — this command has nobody to ask.
+        Assert.True(File.Exists(Path.Combine(_root, "Prints", "Plate.jpg.yaml")));
+        Assert.True(File.Exists(Path.Combine(_root, "_site", "CNAME")));
+    }
+
+    [AvaloniaFact]
+    public void ForceCleanRemovesBothKinds()
+    {
+        // The way a script says yes once, in writing, to what the app would otherwise ask about.
+        MakeLeftovers();
+
+        var (code, output, error) = Run(forceClean: true);
+
+        Assert.Equal(GenerateCommand.Success, code);
+        Assert.Equal(string.Empty, error);
+        Assert.Contains("Removed, as --force-clean asked.", output);
+
+        Assert.False(File.Exists(Path.Combine(_root, "Prints", "Plate.jpg.yaml")));
+        Assert.False(File.Exists(Path.Combine(_root, "_site", "CNAME")));
+
+        // And nothing that still has an artifact goes with them.
+        Assert.True(File.Exists(Path.Combine(_root, "Drawings", "Plate.jpg.yaml")));
+        Assert.True(File.Exists(Path.Combine(_root, "_site", "Drawings", "index.html")));
+    }
+
+    [AvaloniaFact]
+    public void ARunWithNothingLeftOverSaysNothing()
+    {
+        // The guard against a command that nags. Most runs have no leftovers at all, and neither
+        // list may appear when there is nothing in it.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        Run();
+
+        var (_, output, _) = Run();
+
+        Assert.DoesNotContain("no longer have a source", output);
+        Assert.DoesNotContain("no artifact left", output);
+        Assert.DoesNotContain("--force-clean", output);
     }
 }

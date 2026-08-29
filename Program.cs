@@ -71,7 +71,8 @@ sealed class Program
                     .SetupWithoutStarting();
 
                 return GenerateCommand.Run(
-                    options.ProjectFolder!, options.Quiet, Console.Out, Console.Error);
+                    options.ProjectFolder!, options.Quiet, Console.Out, Console.Error,
+                    options.ForceClean);
 
             default:
                 // Gui never reaches here — Main handles it before calling — and a mode added later

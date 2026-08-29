@@ -454,7 +454,7 @@ public class GeneratedFileSweepTests : IDisposable
             SiteGenerator.RemoveEmptyDirectories(site, site);
 
             Assert.True(Directory.Exists(theirEmpty), "an empty directory outside the site was removed");
-            Assert.False(Directory.Exists(ours), "the tidy stopped removing our own empty directories");
+            Assert.False(Directory.Exists(ours), "it stopped removing our own empty directories");
         }
         finally
         {

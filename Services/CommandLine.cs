@@ -23,12 +23,17 @@ public enum CommandLineMode
 /// <param name="Mode">What to do.</param>
 /// <param name="ProjectFolder">The folder to generate, absolute, for <see cref="CommandLineMode.Generate"/>.</param>
 /// <param name="Quiet">Suppress the per-file progress lines; the summary is still printed.</param>
+/// <param name="ForceClean">
+/// Remove what the run would otherwise only list — leftover yamls, and files in <c>_site</c> with no
+/// source. Off by default, because both are things this app declines to decide about on its own.
+/// </param>
 /// <param name="Error">Why the arguments were rejected, for <see cref="CommandLineMode.Invalid"/>.</param>
 public sealed record CommandLineOptions(
     CommandLineMode Mode,
     string? ProjectFolder = null,
     bool Quiet = false,
-    string? Error = null);
+    string? Error = null,
+    bool ForceClean = false);
 
 /// <summary>
 /// Parses the process arguments. Pure and total: it never touches the filesystem beyond resolving
@@ -50,6 +55,11 @@ public static class CommandLine
 
         Options for --generate:
           -q, --quiet                       print only the summary, not every file
+              --force-clean                 also remove what the run would only list: yaml
+                                            files whose artifact has gone, and files in
+                                            _site with no source left. Says "force" because
+                                            it deletes files in your project folder without
+                                            asking, including ones dir2site never wrote.
 
         The folder's dir2site.yaml supplies the title, colours and other settings; a folder
         without one is generated with the defaults the app would have shown for it.
@@ -64,6 +74,7 @@ public static class CommandLine
 
         string? folder = null;
         var quiet = false;
+        var forceClean = false;
         var generate = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -86,6 +97,10 @@ public static class CommandLine
 
                 case "--quiet" or "-q":
                     quiet = true;
+                    break;
+
+                case "--force-clean":
+                    forceClean = true;
                     break;
 
                 default:
@@ -120,6 +135,6 @@ public static class CommandLine
                 Error: "--generate needs the project folder to generate.");
 
         return new CommandLineOptions(
-            CommandLineMode.Generate, Path.GetFullPath(folder), quiet);
+            CommandLineMode.Generate, Path.GetFullPath(folder), quiet, ForceClean: forceClean);
     }
 }
