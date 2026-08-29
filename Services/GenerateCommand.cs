@@ -114,6 +114,13 @@ public static class GenerateCommand
         (string Summary, IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings,
             IReadOnlyList<string> Orphans) result;
         IReadOnlyList<string> leftoverYamls = [];
+
+        // Read before the generate below writes it. A folder this app has never generated has no
+        // history to call anything a leftover against — every judgement it could make would come
+        // from the shape of a filename, which is the reasoning SourceLeftovers refuses everywhere
+        // else. So a first run says what it found and offers none of it; the record it writes at the
+        // end opens the gate for the next one.
+        var generatedBefore = File.Exists(SiteGenerator.GeneratedManifestPath(projectFolder));
         try
         {
             Stage("Scanning for changes...");
@@ -138,8 +145,15 @@ public static class GenerateCommand
             // be named at all rather than named once.
             leftoverYamls = SourceLeftovers.FindLeftoverYamls(projectFolder);
 
-            Stage("Deleting previews of artifacts that have gone...");
-            SourceLeftovers.RemoveGeneratedLeftovers(projectFolder, tracker);
+            // Not on a run with no history, and that is the stronger reading of the same rule: a
+            // first run deletes nothing at all, not even our own. Otherwise this takes the previews
+            // and stamps that are the evidence the report below is built from, so the promise it
+            // prints — offered on the next generate — is broken by the run that makes it.
+            if (generatedBefore)
+            {
+                Stage("Deleting previews of artifacts that have gone...");
+                SourceLeftovers.RemoveGeneratedLeftovers(projectFolder, tracker);
+            }
 
             // Previews first, so the config's PDF resize and quality settings reach what they make.
             Stage("Generating previews...");
@@ -168,13 +182,15 @@ public static class GenerateCommand
         // so a project generated only from a script accumulated the captions of artifacts that had
         // gone with nothing ever saying so. Same situation, same treatment.
 
+        var removing = forceClean && generatedBefore;
+
         Report(output, result.Orphans.Count, "file(s) in _site no longer have a source:",
-            result.Orphans, forceClean);
+            result.Orphans, removing, generatedBefore);
 
         Report(output, leftoverYamls.Count, "yaml file(s) have no artifact left beside them:",
-            leftoverYamls.Select(y => Path.GetRelativePath(projectFolder, y)), forceClean);
+            leftoverYamls.Select(y => Path.GetRelativePath(projectFolder, y)), removing, generatedBefore);
 
-        if (forceClean)
+        if (removing)
         {
             var removed = SiteGenerator.RemoveOrphans(projectFolder + Path.DirectorySeparatorChar + "_site",
                 result.Orphans);
@@ -232,15 +248,18 @@ public static class GenerateCommand
     /// they did.
     /// </remarks>
     private static void Report(
-        TextWriter output, int count, string heading, IEnumerable<string> items, bool forceClean)
+        TextWriter output, int count, string heading, IEnumerable<string> items,
+        bool removing, bool generatedBefore)
     {
         if (count == 0) return;
 
         output.WriteLine($"{count} {heading}");
         foreach (var item in items) output.WriteLine($"  {item}");
 
-        output.WriteLine(forceClean
-            ? "Removed, as --force-clean asked."
-            : "Left in place. Open the project in the app, or re-run with --force-clean to remove them.");
+        output.WriteLine(!generatedBefore
+            ? "This folder has not been generated before, so nothing is offered. It will be on the next generate."
+            : removing
+                ? "Removed, as --force-clean asked."
+                : "Left in place. Open the project in the app, or re-run with --force-clean to remove them.");
     }
 }

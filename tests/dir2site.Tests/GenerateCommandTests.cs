@@ -327,4 +327,93 @@ public class GenerateCommandTests : IDisposable
         Assert.DoesNotContain("no artifact left", output);
         Assert.DoesNotContain("--force-clean", output);
     }
+
+    // ---- a folder with no history ------------------------------------------
+
+    [AvaloniaFact]
+    public void AFolderItHasNeverGeneratedIsToldAboutRatherThanOffered()
+    {
+        // Someone keeping hand-written metadata beside images that live elsewhere: every file
+        // matches the leftover shape, because that is what a yaml looks like. On first contact the
+        // app has no before to call any of it a leftover against, so the whole collection was
+        // offered for deletion and --force-clean took it.
+        //
+        // Both rules cover this one — there is no history, and there is no evidence beside any of
+        // these files either — and it stays green if either is removed. That is the overlap working
+        // rather than a gap: the history rule protects a first run, the evidence rule keeps
+        // protecting the same folder ten years in, and this is the case that needs both.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        foreach (var name in new[] { "Aunt Mary.jpg", "The Mill.jpg" })
+            File.WriteAllText(Path.Combine(_root, name + ".yaml"), $"type: photo\ncaption: {name}\n");
+
+        var (code, output, _) = Run(forceClean: true);
+
+        Assert.Equal(GenerateCommand.Success, code);
+        Assert.True(File.Exists(Path.Combine(_root, "Aunt Mary.jpg.yaml")), "a first run deleted the user's metadata");
+        Assert.True(File.Exists(Path.Combine(_root, "The Mill.jpg.yaml")));
+        Assert.DoesNotContain("Removed, as --force-clean asked.", output);
+    }
+
+    [AvaloniaFact]
+    public void AForeignSiteOnFirstContactIsNotSweptEither()
+    {
+        // A folder that already holds a _site some other tool built. Every file in it has no source
+        // as far as this app is concerned, which on a first run is a statement about this app rather
+        // than about the files.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        Directory.CreateDirectory(Path.Combine(_root, "_site"));
+        File.WriteAllText(Path.Combine(_root, "_site", "feed.xml"), "someone else's site");
+
+        var (_, output, _) = Run(forceClean: true);
+
+        Assert.True(File.Exists(Path.Combine(_root, "_site", "feed.xml")), "a first run deleted another tool's site");
+        Assert.Contains("has not been generated before", output);
+    }
+
+    [AvaloniaFact]
+    public void TheRunAfterTheFirstOffersAsUsual()
+    {
+        // The gate opens by itself: the first run writes the record, and the second behaves exactly
+        // as it always did. Nothing here is permanent protection.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        WriteArtifact("Drawings", "A Drawing");
+        Run();
+
+        File.Delete(Path.Combine(_root, "Prints", "Plate.jpg"));
+        var (_, output, _) = Run();
+
+        Assert.Contains(Path.Combine("Prints", "Plate.jpg.yaml"), output);
+        Assert.Contains("--force-clean", output);
+    }
+
+    [AvaloniaFact]
+    public void DeletingTheRecordPutsItBackToFirstContact()
+    {
+        // Which is what starting over means, and it is the way out if the gate ever gets in someone's
+        // way — the same escape hatch as deleting a yaml, one level up.
+        WriteConfig("title: Riverbend\nfooter: © 2026\n");
+        WriteArtifact("Prints", "A Plate");
+        WriteArtifact("Drawings", "A Drawing");
+        Run();
+
+        File.Delete(Path.Combine(_root, "Prints", "Plate.jpg"));
+        File.Delete(SiteGenerator.GeneratedManifestPath(_root));
+
+        var (_, output, _) = Run(forceClean: true);
+
+        Assert.True(File.Exists(Path.Combine(_root, "Prints", "Plate.jpg.yaml")));
+        Assert.Contains("has not been generated before", output);
+        Assert.Contains(Path.Combine("Prints", "Plate.jpg.yaml"), output);
+
+        // And the run keeps its word. It said this would be offered next time, so it must not have
+        // deleted the previews and stamp that are the only reason it could name the file at all —
+        // which is why a run with no history deletes nothing, ours included. Stopping a run short of
+        // here is how asked-once became asked-never with the promise in writing.
+        var (_, second, _) = Run();
+
+        Assert.Contains(Path.Combine("Prints", "Plate.jpg.yaml"), second);
+        Assert.Contains("--force-clean", second);
+    }
 }

@@ -1311,8 +1311,16 @@ public partial class MainWindowViewModel : ViewModelBase
             IReadOnlyList<string> Orphans) result;
         IReadOnlyList<string> explainedByChanges = [];
         IReadOnlyList<string> sourceLeftovers = [];
+        var generatedBefore = true;
         try
         {
+            // Read before the generate below writes it. A folder this app has never generated has no
+            // history to call anything a leftover against, and every judgement it could make would
+            // come from the shape of a filename — the reasoning SourceLeftovers refuses everywhere
+            // else. Someone opening a folder of hand-written metadata, or one holding a site another
+            // tool built, gets told what was found and asked about none of it.
+            generatedBefore = File.Exists(SiteGenerator.GeneratedManifestPath(DirectoryRoot!));
+
             // Re-scan from disk so any YAML edits since last load are picked up
             tracker.Report("Scanning for changes...");
             var updatedYamls = new List<string>();
@@ -1353,7 +1361,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 // previews and stamps the sweep takes, so a yaml looked at afterwards has nothing
                 // backing it and is never named at all rather than named once.
                 sourceLeftovers = await Task.Run(() => SourceLeftovers.FindLeftoverYamls(DirectoryRoot!), cancel);
-                await Task.Run(() => SourceLeftovers.RemoveGeneratedLeftovers(DirectoryRoot!, tracker), cancel);
+
+                // Not on a run with no history: this takes the previews and stamps that are the
+                // evidence a yaml is offered on, so a first run doing it would consume the one ask
+                // it has just promised. A run with no history deletes nothing at all, ours included.
+                if (generatedBefore)
+                    await Task.Run(() => SourceLeftovers.RemoveGeneratedLeftovers(DirectoryRoot!, tracker), cancel);
             }
 
             // Generate previews first so site settings (PDF resize/quality) affect output
@@ -1410,10 +1423,25 @@ public partial class MainWindowViewModel : ViewModelBase
         // A run that finds nothing has settled whatever an earlier one was holding.
         PendingSiteOrphans = [];
 
-        if (result.Orphans.Count > 0)
-            await HandleLeftovers(Path.Combine(DirectoryRoot, "_site"), result.Orphans, explainedByChanges);
+        if (!generatedBefore)
+        {
+            // Said, not asked, and not held for a deploy either — a first run has no standing to
+            // propose deleting anything it merely recognised the shape of.
+            var found = result.Orphans.Count + sourceLeftovers.Count;
+            if (found > 0)
+                AppendWarning(found == 1
+                    ? "1 file looks left over, but this folder has not been generated before — " +
+                      "nothing was offered. It will be offered on the next generate."
+                    : $"{found} files look left over, but this folder has not been generated before — " +
+                      "nothing was offered. They will be offered on the next generate.");
+        }
+        else
+        {
+            if (result.Orphans.Count > 0)
+                await HandleLeftovers(Path.Combine(DirectoryRoot, "_site"), result.Orphans, explainedByChanges);
 
-        await OfferSourceLeftovers(sourceLeftovers);
+            await OfferSourceLeftovers(sourceLeftovers);
+        }
 
         StartServerCommand.NotifyCanExecuteChanged();
         QuickSyncCommand.NotifyCanExecuteChanged();

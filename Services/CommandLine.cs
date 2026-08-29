@@ -60,6 +60,9 @@ public static class CommandLine
                                             _site with no source left. Says "force" because
                                             it deletes files in your project folder without
                                             asking, including ones dir2site never wrote.
+                                            A folder dir2site has never generated has no
+                                            leftovers by definition, so on a fresh clone
+                                            this removes nothing until the first generate.
 
         The folder's dir2site.yaml supplies the title, colours and other settings; a folder
         without one is generated with the defaults the app would have shown for it.
