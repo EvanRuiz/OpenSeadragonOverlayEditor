@@ -1472,15 +1472,16 @@ public partial class MainWindowViewModel : ViewModelBase
     /// whether we can say how it got that way.
     /// </summary>
     /// <remarks>
-    /// A page stranded by a change we watched happen is not a question. Deleting one of two photos
-    /// from a folder leaves it holding a single item, which publishes as the folder's own index
-    /// rather than as a card — so the surviving photo's page moves up a level and the old one is
-    /// left behind. Asking about that is asking the user to confirm a consequence of the layout
-    /// rules, phrased as though they had deleted something.
+    /// Much less reaches here than used to. The generate has already taken away every file it can
+    /// show it wrote itself, because <c>_site</c> is output and this app's own stale work is not a
+    /// question — deleting one of two photos leaves the folder holding a single item, which
+    /// publishes as the folder's own index, and asking about the page that move strands is asking
+    /// the user to confirm a consequence of the layout rules as though they had deleted something.
     ///
-    /// Everything else still gets asked about, and that is the point of splitting rather than
-    /// suppressing: <c>_site</c> is not watched, so a file put there by hand or by another tool is
-    /// exactly what we would not have seen, and it is exactly what should be asked about.
+    /// What arrives is what no run has a record of writing: a file put in <c>_site</c> by hand or by
+    /// another tool. <c>_site</c> is not watched, so that is exactly what we would not have seen,
+    /// and exactly what should be asked about. The split below is kept for the narrow case of one of
+    /// those sitting under a path a witnessed change explains.
     /// </remarks>
     private async Task HandleLeftovers(
         string siteRoot, IReadOnlyList<string> orphans, IReadOnlyList<string> explained)

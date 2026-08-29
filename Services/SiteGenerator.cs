@@ -137,13 +137,38 @@ public static class SiteGenerator
         if (ledger.IsIncomplete)
         {
             warnings.Add(
-                "Part of the project folder could not be read, so nothing was offered for removal " +
-                "this time. Files left over from deleted content are still in _site — generate " +
-                "again once the folder is readable.");
+                "Part of the project folder could not be read, so nothing was removed or offered " +
+                "for removal this time. Files left over from deleted content are still in _site — " +
+                "generate again once the folder is readable.");
         }
         else
         {
-            orphans = FindOrphans(ledger);
+            // Two different questions, and they used to be asked as one. A page this run didn't want
+            // but a previous run wrote is our own superseded output, and taking it away needs no more
+            // permission than overwriting it did. A file we have no record of writing is somebody
+            // else's, and that is the only thing worth putting in front of the user.
+            var (superseded, foreign) = FindOrphans(ledger, GeneratedLastTime(directoryRoot));
+
+            var stillThere = new List<string>();
+
+            if (superseded.Count > 0)
+            {
+                var (removed, failures) = RemoveOrphans(siteRoot, superseded, progress);
+                foreach (var failure in failures) errors.Add(failure);
+                if (removed > 0)
+                    progress.Report($"Removed {removed} file(s) the site no longer has a use for");
+
+                // A locked file is ordinary on Windows and the delete is allowed to fail. What must
+                // not happen is that it drops out of the record: the next run would find a file it
+                // has no note of writing and ask the user about a page it wrote itself, which is the
+                // whole thing this record exists to stop. Keeping it recorded leaves it superseded,
+                // so the next run simply tries the delete again.
+                stillThere.AddRange(superseded.Where(rel => File.Exists(
+                    Path.Combine(siteRoot, rel.Replace('/', Path.DirectorySeparatorChar)))));
+            }
+
+            orphans = foreign;
+            WriteGeneratedManifest(directoryRoot, siteRoot, ledger, stillThere);
         }
 
         var summary = orphans.Count == 0
@@ -1479,6 +1504,9 @@ public static class SiteGenerator
 
         public bool Contains(string fullPath) => _kept.ContainsKey(fullPath);
 
+        /// <summary>Every path this run claimed, for the record it leaves behind.</summary>
+        public IEnumerable<string> Kept => _kept.Keys;
+
         /// <summary>
         /// Set when a source folder could not be read, so this run never learned what was in it.
         /// </summary>
@@ -1508,23 +1536,107 @@ public static class SiteGenerator
     /// the generator, and the user confirms before any of it goes. A threshold would eventually
     /// refuse a perfectly real "I deleted most of my site" run.
     /// </remarks>
-    private static IReadOnlyList<string> FindOrphans(SiteLedger ledger)
+    private static (IReadOnlyList<string> Superseded, IReadOnlyList<string> Foreign) FindOrphans(
+        SiteLedger ledger, IReadOnlySet<string> generatedLastTime)
     {
         List<string> files;
         try { files = [.. Directory.EnumerateFiles(ledger.Root, "*", SearchOption.AllDirectories)]; }
-        catch { return []; }
+        catch { return ([], []); }
 
-        var orphans = new List<string>();
+        var superseded = new List<string>();
+        var foreign = new List<string>();
+
         foreach (var file in files)
         {
             if (ledger.Contains(Path.GetFullPath(file))) continue;
             var rel = Path.GetRelativePath(ledger.Root, file);
             if (IsProtected(rel)) continue;
-            orphans.Add(rel.Replace(Path.DirectorySeparatorChar, '/'));
+
+            var slashed = rel.Replace(Path.DirectorySeparatorChar, '/');
+            (generatedLastTime.Contains(slashed) ? superseded : foreign).Add(slashed);
         }
 
-        orphans.Sort(StringComparer.Ordinal);
-        return orphans;
+        superseded.Sort(StringComparer.Ordinal);
+        foreign.Sort(StringComparer.Ordinal);
+        return (superseded, foreign);
+    }
+
+    /// <summary>Where a run records what it put in the site, for the next run's sweep to read.</summary>
+    /// <remarks>
+    /// Beside the project rather than in <c>_site</c>, and the reason is the deploy. Everything in
+    /// <c>_site</c> is publishable output by definition and gets uploaded unless it is on
+    /// <c>PublishIgnore</c>'s list of known clutter by name — a dot prefix alone does not stop it —
+    /// so a manifest kept there would be served at the site's own address, listing every file in it.
+    /// A <c>.dir2site</c> folder in the project is where this app already keeps things about a
+    /// folder that are not part of it, and the walk ignores those wherever it meets them.
+    /// </remarks>
+    internal static string GeneratedManifestPath(string directoryRoot) =>
+        Path.Combine(directoryRoot, ".dir2site", "site-manifest");
+
+    /// <summary>
+    /// Every path the last completed generate wrote, as site-relative forward-slashed names.
+    /// </summary>
+    /// <remarks>
+    /// This is the difference between "we made this and no longer want it" and "somebody put this
+    /// here". Without it the sweep could only guess from the shape of the name, decided that
+    /// everything without a dot in it was ours, and then asked anyway — so a page left behind by a
+    /// deleted folder waited on a dialog, while a hand-placed <c>CNAME</c> was offered for deletion
+    /// on every single run and had to be declined every time.
+    ///
+    /// An empty answer is the honest one for a site generated before this file existed, and it errs
+    /// the safe way: everything unclaimed is treated as somebody else's and offered rather than
+    /// taken. The first run writes the manifest, and the run after it can act.
+    /// </remarks>
+    private static IReadOnlySet<string> GeneratedLastTime(string directoryRoot)
+    {
+        try
+        {
+            var path = GeneratedManifestPath(directoryRoot);
+            if (!File.Exists(path)) return new HashSet<string>();
+
+            return new HashSet<string>(
+                File.ReadAllLines(path).Where(l => l.Length > 0),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // Unreadable is not "we generated nothing" — but it is "we cannot say", and the safe
+            // reading of that is to offer rather than to delete.
+            return new HashSet<string>();
+        }
+    }
+
+    /// <summary>Records what this run put in the site, for the next run's sweep to read.</summary>
+    /// <param name="alsoOurs">
+    /// Paths this run meant to take away and could not. Recorded so they stay on the superseded side
+    /// of the next run's question rather than becoming files nobody admits to writing.
+    /// </param>
+    private static void WriteGeneratedManifest(
+        string directoryRoot, string siteRoot, SiteLedger ledger, IEnumerable<string> alsoOurs)
+    {
+        try
+        {
+            var root = Path.GetFullPath(siteRoot);
+            var paths = ledger.Kept
+                .Select(p => Path.GetRelativePath(root, p).Replace(Path.DirectorySeparatorChar, '/'))
+                .Where(p => !p.StartsWith("..", StringComparison.Ordinal))
+                .Concat(alsoOurs)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p, StringComparer.Ordinal);
+
+            var path = GeneratedManifestPath(directoryRoot);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var content = string.Join(Environment.NewLine, paths) + Environment.NewLine;
+
+            // Written only when it would say something different, like every other file this
+            // generator produces. A record that is rewritten on every run is a file whose timestamp
+            // moves for no reason — and the deploy compares timestamps, so it would be uploaded on
+            // every publish of a site that hadn't changed.
+            if (File.Exists(path) && File.ReadAllText(path) == content) return;
+
+            File.WriteAllText(path, content);
+        }
+        catch { /* without it the next sweep asks instead of acting, which is the safe direction */ }
     }
 
     /// <summary>
