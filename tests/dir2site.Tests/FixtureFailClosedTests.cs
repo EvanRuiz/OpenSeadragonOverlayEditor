@@ -44,4 +44,48 @@ public class FixtureFailClosedTests
             Environment.SetEnvironmentVariable(RcloneTool.RequireEnvVar, previous);
         }
     }
+
+    /// <summary>
+    /// The same hole, in the console test: Windows is the only job that runs it, so a guard that
+    /// skips there is coverage disappearing rather than an environment being unsupported.
+    /// </summary>
+    [Fact]
+    public void WithoutTheRequireFlag_TheConsoleTestJustSkips()
+    {
+        var previous = Environment.GetEnvironmentVariable(CommandLineProcessTests.RequireEnvVar);
+        Environment.SetEnvironmentVariable(CommandLineProcessTests.RequireEnvVar, null);
+        try
+        {
+            Assert.Throws<Xunit.SkipException>(
+                () => CommandLineProcessTests.SkipOrFail(true, "no console here"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(CommandLineProcessTests.RequireEnvVar, previous);
+        }
+    }
+
+    [Fact]
+    public void WithTheRequireFlag_TheConsoleTestFailsInstead()
+    {
+        var previous = Environment.GetEnvironmentVariable(CommandLineProcessTests.RequireEnvVar);
+        Environment.SetEnvironmentVariable(CommandLineProcessTests.RequireEnvVar, "1");
+        try
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => CommandLineProcessTests.SkipOrFail(true, "no console here"));
+            Assert.Contains("must run", ex.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(CommandLineProcessTests.RequireEnvVar, previous);
+        }
+    }
+
+    /// <summary>A guard that did not trip is not a skip: the test carries on.</summary>
+    [Fact]
+    public void AGuardThatDoesNotTripDoesNothing()
+    {
+        CommandLineProcessTests.SkipOrFail(false, "unreachable");
+    }
 }

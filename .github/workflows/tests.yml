@@ -140,6 +140,14 @@ jobs:
         run: echo "DIR2SITE_REQUIRE_SFTP_TESTS=1" >> "$GITHUB_ENV"
         shell: bash
 
+      # Same reasoning, for the console test that only runs here: Windows is the only job that
+      # covers attaching to a console and setting its code page, and every guard in that test is a
+      # way for it to skip. Locally it stays unset, so an unusual runtime layout is not a hard stop.
+      - name: Require the Windows console test to run
+        if: runner.os == 'Windows'
+        run: echo "DIR2SITE_REQUIRE_CONSOLE_TESTS=1" >> "$GITHUB_ENV"
+        shell: bash
+
       # Opts in to the tests that read and write the real login keychain. Safe on an ephemeral
       # runner; left off locally so `dotnet test` never touches a developer's own keychain.
       - name: Allow keychain-backed tests
