@@ -51,6 +51,69 @@ internal static class SourceListing
         return [.. Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)];
     }
 
+    /// <summary>Whether this directory is a symlink or a junction, rather than a directory.</summary>
+    /// <remarks>
+    /// Asked on the way to a delete, in both trees this app sweeps: <c>SourceLeftovers</c> before it
+    /// names anything in the project, and <c>SiteGenerator</c> before it names anything in
+    /// <c>_site</c>. Stepping through a link puts everything under its target in range, and the paths
+    /// come back written as though they were local — so a dialog and a CI log both name
+    /// <c>media/film.mp4</c> for a file that is nowhere near either folder.
+    ///
+    /// A lexical containment check does not stand in for this: <see cref="Path.GetFullPath"/>
+    /// normalises <c>..</c> and leaves links alone, so a path through one passes a StartsWith test
+    /// while pointing outside. Not stepping through the link is the check.
+    ///
+    /// Answers true when it cannot tell, which is the safe direction where the next step is a
+    /// delete. <c>LinkTarget</c> covers Windows junctions as well as symlinks.
+    /// </remarks>
+    internal static bool IsLinkedDirectory(string directory)
+    {
+        try { return new DirectoryInfo(directory).LinkTarget != null; }
+        catch { return true; }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is inside <paramref name="root"/> and stays there.
+    /// </summary>
+    /// <remarks>
+    /// The boundary this app deletes against, asked at the delete rather than in the walk that found
+    /// the path. Every walk has had to learn the same lesson separately — the project walk, the
+    /// <c>_site</c> walk, the join to <c>.dir2site</c> that neither walk enters, the empty-directory
+    /// tidy — and each was fixed where someone happened to look. This is the invariant those four
+    /// were each approximating: no delete resolves outside the tree it was pointed at, whatever the
+    /// walk that produced it does next.
+    ///
+    /// Lexical containment is the first half and not the whole. <see cref="Path.GetFullPath"/>
+    /// normalises <c>..</c> and leaves links alone, so a path written inside the tree can still lead
+    /// out of it — which is why the second half walks the chain of directories between the two and
+    /// refuses if any of them is a link.
+    ///
+    /// The leaf is not asked about: deleting a symlink removes the link and leaves its target, so a
+    /// linked leaf inside the tree is ours to take.
+    /// </remarks>
+    internal static bool ResolvesInside(string root, string path)
+    {
+        string fullRoot, full;
+        try
+        {
+            fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+            full = Path.GetFullPath(path);
+        }
+        catch { return false; }
+
+        if (!full.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        for (var at = Path.GetDirectoryName(full);
+             at != null && at.Length > fullRoot.Length;
+             at = Path.GetDirectoryName(at))
+        {
+            if (IsLinkedDirectory(at)) return false;
+        }
+
+        return true;
+    }
+
     private static void Refuse(string path)
     {
         if (_unreadable.Value is not { } denied) return;

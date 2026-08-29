@@ -11,6 +11,36 @@ namespace dir2site.Services;
 /// Finds yaml files and preview folders whose artifact is no longer beside them.
 /// </summary>
 /// <remarks>
+/// <para><b>What this class may name, and nothing else.</b> It is the only thing in the app that
+/// decides a path inside the user's project folder is disposable, and everything it returns is
+/// offered to the user for recursive deletion. So the boundary is stated here, where the decision
+/// is made, rather than left to be reconstructed from four files:</para>
+/// <list type="bullet">
+/// <item><description><c>_site/*</c>, and what the deploy sends to the server — ours. Removed
+/// without asking, and none of it comes through here.</description></item>
+/// <item><description><c>.dir2site</c> — ours. Removed without asking, by
+/// <see cref="RemoveGeneratedLeftovers"/> when nothing was watching and by <see cref="RemoveFor"/> when
+/// something was. It never reaches a dialog.</description></item>
+/// <item><description>The yaml — <em>user data</em>, despite this app having scaffolded the file.
+/// The captions and credits in it are the user's work, and it is the one thing worth asking
+/// about.</description></item>
+/// <item><description>Everything else in the project folder — the user's, and never named here
+/// however disposable it looks.</description></item>
+/// </list>
+/// <para>Which gives the two halves of what this class finds, and they are not treated alike. A
+/// leftover is either <em>ours</em> — a previews folder, a stamp — and goes without asking, or it is
+/// the user's yaml, and is found and put to them. Nothing else is either, and nothing else may be
+/// named. The methods are named for that split: <see cref="RemoveGeneratedLeftovers"/> takes the
+/// first kind, <see cref="FindLeftoverYamls"/> reports the second.</para>
+///
+/// <para>The rule is a whitelist and has to stay one. It was broken once by a change that decided a
+/// folder was disposable by listing the things that don't count in it — an ignore list borrowed from
+/// the artifact walk, which answers "we don't descend into this", not "nobody would miss this". A
+/// folder holding the user's <c>_media/</c> came out the other side on a list headed "settings or
+/// preview file", one click from a recursive delete. <c>NothingButOurOwnIsOfferedTests</c> asserts
+/// the shape of what <see cref="FindAll"/> returns, totally rather than case by case, because a rule
+/// enforced by listing exceptions catches only the last exception.</para>
+///
 /// Both are named after the file they belong to, so a rename or a deletion carried out while
 /// dir2site wasn't running leaves them behind with nothing pointing at them. The watcher would have
 /// said which of the two happened; with nothing watching, the shapes are all there is — and they can
@@ -21,7 +51,12 @@ namespace dir2site.Services;
 public static class SourceLeftovers
 {
     /// <param name="YamlFiles">Yaml files in <c>name.ext.yaml</c> form with no <c>name.ext</c> beside them.</param>
-    /// <param name="PreviewDirs">Folders under <c>.dir2site/</c> named for a stem nothing in the folder has.</param>
+    /// <param name="PreviewDirs">
+    /// What is left under <c>.dir2site/</c> for a stem nothing in the folder has: the previews
+    /// folder, and the <c>{stem}.stamp</c> beside it. Both are ours, and both are named after the
+    /// artifact rather than living inside anything named after it, so a deletion nobody watched
+    /// strands them in the same way.
+    /// </param>
     public sealed record Analysis(
         IReadOnlyList<string> YamlFiles,
         IReadOnlyList<string> PreviewDirs);
@@ -55,13 +90,28 @@ public static class SourceLeftovers
 
         var previewDirs = new List<string>();
         var dir2site = Path.Combine(dir, ".dir2site");
-        if (Directory.Exists(dir2site))
+
+        // The walk's symlink guard never sees this one: .dir2site is skipped by name on the way past,
+        // so it is reached by joining rather than by walking, and a join follows a link. Point
+        // .dir2site at another volume — previews are the heaviest thing in a project, so relocating
+        // them is the obvious reason to — and every folder at the target that this project has no
+        // artifact for is "stranded" by definition, and swept, with no flag and no dialog.
+        if (Directory.Exists(dir2site) && !SourceListing.IsLinkedDirectory(dir2site))
         {
             try
             {
                 foreach (var sub in Directory.GetDirectories(dir2site))
                     if (!stems.Contains(Path.GetFileName(sub)))
                         previewDirs.Add(sub);
+
+                // The stamp is a file directly in .dir2site rather than inside the previews folder,
+                // deliberately — anything in that folder is copied wholesale into the site and
+                // published. But this sweep asked for directories only, so a stamp whose artifact
+                // had gone could never be found by it. RemoveFor takes it on a deletion we watched;
+                // nothing watching is the case this whole class exists for.
+                foreach (var file in Directory.GetFiles(dir2site, "*.stamp"))
+                    if (!stems.Contains(Path.GetFileNameWithoutExtension(file)))
+                        previewDirs.Add(file);
             }
             catch { /* unreadable is not the same as empty; say nothing about this folder */ }
         }
@@ -76,8 +126,18 @@ public static class SourceLeftovers
             !ext.Equals(".yml", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        // name.ext.yaml has a second extension underneath; the legacy name.yaml does not.
-        return Path.GetExtension(Path.GetFileNameWithoutExtension(name)).Length > 0;
+        // name.ext.yaml has a second extension underneath; the legacy name.yaml does not. But any
+        // second extension is not enough, and reading it that way put people's own files on a list
+        // headed "no artifact left beside them": .travis.yml, .pre-commit-config.yaml,
+        // docker-compose.override.yml — .travis, .override and the rest all look like an inner
+        // extension. Under the app's own flag they were then deleted.
+        //
+        // So the question is the one that would have made a yaml in the first place: is the thing
+        // underneath something this app makes artifacts of. Nothing is lost by asking — a scaffolded
+        // yaml is only ever written beside a file whose extension is in that table, so a name this
+        // turns away is a name we could not have written.
+        var underneath = Path.GetExtension(Path.GetFileNameWithoutExtension(name));
+        return underneath.Length > 0 && YamlParser.ExtensionToType.ContainsKey(underneath);
     }
 
     /// <summary>
@@ -98,6 +158,12 @@ public static class SourceLeftovers
 
         // The current convention only. A legacy "Portrait.yaml" could just as easily be a file the
         // user wrote and named for the same subject, and nothing here can tell the difference.
+        // Only for something with an extension. The watcher reports a deleted *folder* here too, and
+        // a folder's name has none — so "Photos" + ".yaml" is exactly the legacy shape this method
+        // refuses to guess at two lines below, and a hand-written Photos.yaml beside a folder the
+        // user deleted went with it, silently. The offering side already applies this test.
+        if (Path.GetExtension(name).Length == 0) return;
+
         foreach (var ext in new[] { ".yaml", ".yml" })
         {
             var yaml = Path.Combine(dir, name + ext);
@@ -107,7 +173,7 @@ public static class SourceLeftovers
         }
 
         var previews = Path.Combine(dir, ".dir2site", stem);
-        if (Directory.Exists(previews))
+        if (Directory.Exists(previews) && !SourceListing.IsLinkedDirectory(Path.Combine(dir, ".dir2site")))
         {
             try { Directory.Delete(previews, recursive: true); removed = true; } catch { }
         }
@@ -121,25 +187,102 @@ public static class SourceLeftovers
             try { File.Delete(stamp); removed = true; } catch { }
         }
 
-        if (removed) progress?.Report($"Removed the settings and previews for {name}");
+        if (removed) progress?.Report($"Removed the yaml and previews for {name}");
     }
 
-    /// <summary>Everything left over beneath <paramref name="root"/>, as one list of paths.</summary>
-    public static IReadOnlyList<string> FindAll(string root)
+    /// <summary>
+    /// The yaml files left beneath <paramref name="root"/> with no artifact to belong to — everything
+    /// there is to ask the user about.
+    /// </summary>
+    /// <remarks>
+    /// Yamls and nothing else, which is why this is no longer called <c>FindAll</c>: it once
+    /// returned both kinds of leftover, and a name saying "all" outlived the day it stopped.
+    /// What <see cref="InDirectory"/> finds under <c>.dir2site</c> is left out on purpose — it is
+    /// ours, so <see cref="RemoveGeneratedLeftovers"/> takes it rather than asking. A dialog is for a
+    /// decision only the user can make, and whether to keep this app's own thumbnails for a picture
+    /// that is gone is not one.
+    /// </remarks>
+    public static IReadOnlyList<string> FindLeftoverYamls(string root)
     {
         var found = new List<string>();
 
         foreach (var dir in Walk(root))
-        {
-            var analysis = InDirectory(dir);
-            found.AddRange(analysis.YamlFiles);
-            found.AddRange(analysis.PreviewDirs);
-        }
+            found.AddRange(InDirectory(dir).YamlFiles);
 
         return found;
     }
 
-    /// <summary>Every folder the tree walk would visit, root included.</summary>
+    /// <summary>
+    /// Takes away the previews and stamps beneath <paramref name="root"/> that belong to artifacts
+    /// which are no longer there. Returns how many artifacts were cleaned up after.
+    /// </summary>
+    /// <remarks>
+    /// The unwitnessed twin of <see cref="RemoveFor"/>, and done rather than offered for the same
+    /// reason that one is: <c>.dir2site</c> is this app's, and taking away what it wrote needs no
+    /// more permission than overwriting it did. The uncertainty that makes a deletion worth asking
+    /// about — was this a rename we failed to pair, or a file the user meant to remove — is a
+    /// question about <em>their</em> file, and it is answered by leaving their yaml alone and asking
+    /// about that. Our thumbnails are wrong either way.
+    ///
+    /// Only stems nothing in the folder claims, which is the same rule <see cref="InDirectory"/>
+    /// already applies, so a rename that has already been paired is not swept out from under itself.
+    /// </remarks>
+    public static int RemoveGeneratedLeftovers(string root, IProgress<string>? progress = null)
+    {
+        // Counted by artifact rather than by file. One artifact leaves two things behind — a folder
+        // and a stamp — so counting entries reported twice as many as there were pictures, which is
+        // a number nobody could match against anything they could see.
+        var cleaned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dir in Walk(root))
+        {
+            foreach (var path in InDirectory(dir).PreviewDirs)
+            {
+                // The walks are guarded, and this asks anyway. Four separate walks have led out of
+                // the tree at one time or another, each fixed where it was found; the boundary is
+                // the thing that holds whatever the next walk does.
+                if (!SourceListing.ResolvesInside(root, path)) continue;
+
+                try
+                {
+                    if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+                    else if (File.Exists(path)) File.Delete(path);
+                    else continue;
+
+                    cleaned.Add(Path.Combine(dir, Path.GetFileNameWithoutExtension(path)));
+                }
+                catch { /* it will be here next time, and this is not worth interrupting a run for */ }
+            }
+        }
+
+        if (cleaned.Count > 0)
+            progress?.Report(cleaned.Count == 1
+                ? "Removed the previews of 1 artifact that is no longer there"
+                : $"Removed the previews of {cleaned.Count} artifacts that are no longer there");
+
+        return cleaned.Count;
+    }
+
+    /// <summary>Every folder inside the project, root included — and no further.</summary>
+    /// <remarks>
+    /// A symlinked directory is not descended into, and that is a rule about deletion rather than
+    /// about walking. Everything this class produces is either removed outright or put to the user
+    /// with a tick beside it, so a walk that steps through a link takes the whole of somewhere else
+    /// with it: a photo library kept on another drive, a synced folder — or another dir2site project,
+    /// whose previews then look stranded to us because its artifacts are not ours to see, and get
+    /// swept on an ordinary generate.
+    ///
+    /// The paths also come back written as though they were local, so a leftovers dialog and a CI log
+    /// both name <c>Photographs/Linked/Family.jpg.yaml</c> for a file that is nowhere near the
+    /// project. A lexical containment check does not catch it — <see cref="Path.GetFullPath"/>
+    /// normalises <c>..</c> and leaves links alone, so the path passes a StartsWith test while
+    /// pointing outside. Not stepping through the link is the check.
+    ///
+    /// The artifact walk does follow links, so content kept behind one is still published and still
+    /// gets previews written beside it. What that costs is only that its leftovers are never tidied,
+    /// which is litter — and litter is the right thing to trade for not deleting somewhere the user
+    /// never pointed us.
+    /// </remarks>
     private static IEnumerable<string> Walk(string root)
     {
         yield return root;
@@ -151,7 +294,10 @@ public static class SourceLeftovers
         foreach (var child in children)
         {
             if (DirectoryTraverser.IsIgnoredDirectoryName(Path.GetFileName(child))) continue;
+            if (SourceListing.IsLinkedDirectory(child)) continue;
             foreach (var nested in Walk(child)) yield return nested;
         }
     }
+
+
 }

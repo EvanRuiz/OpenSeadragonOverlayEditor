@@ -1648,7 +1648,7 @@ public static class SiteGenerator
         SiteLedger ledger, IReadOnlySet<string> generatedLastTime)
     {
         List<string> files;
-        try { files = [.. Directory.EnumerateFiles(ledger.Root, "*", SearchOption.AllDirectories)]; }
+        try { files = FilesInTheSite(ledger.Root); }
         catch { return ([], []); }
 
         var superseded = new List<string>();
@@ -1667,6 +1667,39 @@ public static class SiteGenerator
         superseded.Sort(StringComparer.Ordinal);
         foreign.Sort(StringComparer.Ordinal);
         return (superseded, foreign);
+    }
+
+    /// <summary>
+    /// Every file in the site, without stepping through a symlinked directory.
+    /// </summary>
+    /// <remarks>
+    /// Linking a media folder into the published site rather than copying gigabytes into it is an
+    /// ordinary thing to do, and everything behind that link belongs to the user. A recursive
+    /// enumeration follows it, so their masters arrived here as files with no source and were listed
+    /// as such — which is the exact sentence a dialog uses to get a yes, and <c>--force-clean</c> is
+    /// a yes already given. They are not our output and they are not in the record, so the honest
+    /// answer is not to name them at all rather than to name them and then decline.
+    ///
+    /// The same rule as the leftovers walk, and for the same reason: see
+    /// <see cref="SourceListing.IsLinkedDirectory"/>.
+    /// </remarks>
+    internal static List<string> FilesInTheSite(string root)
+    {
+        var files = new List<string>();
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            files.AddRange(Directory.GetFiles(dir));
+
+            foreach (var child in Directory.GetDirectories(dir))
+                if (!SourceListing.IsLinkedDirectory(child))
+                    pending.Push(child);
+        }
+
+        return files;
     }
 
     /// <summary>Where a run records what it put in the site, for the next run's sweep to read.</summary>
@@ -1786,8 +1819,14 @@ public static class SiteGenerator
             //
             // Containment first: "..", being a dot-segment, would otherwise be turned away as a
             // dot-file, which is true but not the thing worth saying about a path escaping _site.
+            //
+            // Not lexical any more, and that is the point. It used to be a StartsWith, which catches
+            // ".." and does not catch a symlink — a path through one is written inside the site while
+            // leading out of it, and reading that check as protection is how the same escape survived
+            // a round of review in the half nobody went back to re-ask about. ResolvesInside walks
+            // the chain, so this is a boundary rather than a spelling test.
             var full = Path.GetFullPath(Path.Combine(root, rel));
-            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (!SourceListing.ResolvesInside(root, full))
             {
                 errors.Add($"{rel}: not removed — it resolves outside _site.");
                 continue;
@@ -1830,8 +1869,13 @@ public static class SiteGenerator
         try { children = [.. Directory.EnumerateDirectories(dir)]; }
         catch { return; }
 
+        // The tidy walk needs the same rule the naming walk got: a linked directory is somewhere
+        // else, and rmdir-ing empty folders at its target is a write outside the site. Only empty
+        // ones, so nothing of theirs is lost — but linking a media folder into _site is ordinary,
+        // and reaching through it at all is the thing that keeps coming back.
         foreach (var child in children)
-            RemoveEmptyDirectories(child, root);
+            if (!SourceListing.IsLinkedDirectory(child))
+                RemoveEmptyDirectories(child, root);
 
         if (string.Equals(dir, root, StringComparison.Ordinal)) return;
 

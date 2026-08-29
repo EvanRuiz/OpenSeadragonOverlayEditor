@@ -178,9 +178,17 @@ public static class PreviewGenerator
     /// </remarks>
     internal static void DiscardGenerated(string sourceFile)
     {
-        var fileDir = Path.GetDirectoryName(sourceFile) ?? string.Empty;
-        var stem    = Path.GetFileNameWithoutExtension(sourceFile);
-        var dir     = Path.Combine(fileDir, ".dir2site", stem);
+        var fileDir  = Path.GetDirectoryName(sourceFile) ?? string.Empty;
+        var stem     = Path.GetFileNameWithoutExtension(sourceFile);
+        var dir2site = Path.Combine(fileDir, ".dir2site");
+
+        // .dir2site is reached by joining rather than by walking, here as in four other places, and
+        // a join follows a link. This is the one of the five a scan alone can reach: a yaml the walk
+        // has to scaffold sends it straight here, so a project with a linked .dir2site had a folder
+        // at the target deleted by opening it, without a generate, a flag or a dialog.
+        if (SourceListing.IsLinkedDirectory(dir2site)) return;
+
+        var dir = Path.Combine(dir2site, stem);
 
         try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); } catch { }
         try { File.Delete(StampPath(sourceFile)); } catch { }

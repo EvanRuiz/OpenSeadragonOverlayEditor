@@ -1339,11 +1339,19 @@ public partial class MainWindowViewModel : ViewModelBase
             // one, and the user gets asked to confirm deleting content they never deleted.
             explainedByChanges = ApplySourceChanges(freshRoot, tracker);
 
-            // Only worth asking about when nothing witnessed the deletions that would explain them.
-            // With the watcher running these were already taken away as they happened, so a run
-            // that finds any here has been out of the loop for something.
+            // Only worth looking when nothing witnessed the deletions that would explain them. With
+            // the watcher running these were already taken away as they happened, so a run that
+            // finds any here has been out of the loop for something.
+            //
+            // Two halves, and they are treated differently on purpose. The previews and stamps are
+            // ours, so they simply go — before the previews stage below, so that a stem being reused
+            // by a different file starts from nothing. The yamls are the user's captions and credits
+            // and are the one thing worth a dialog.
             if (!_siteIsAccountedFor)
-                sourceLeftovers = await Task.Run(() => SourceLeftovers.FindAll(DirectoryRoot!), cancel);
+            {
+                await Task.Run(() => SourceLeftovers.RemoveGeneratedLeftovers(DirectoryRoot!, tracker), cancel);
+                sourceLeftovers = await Task.Run(() => SourceLeftovers.FindLeftoverYamls(DirectoryRoot!), cancel);
+            }
 
             // Generate previews first so site settings (PDF resize/quality) affect output
             tracker.Report("Generating previews...");

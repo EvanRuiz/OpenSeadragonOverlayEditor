@@ -383,6 +383,86 @@ public class GeneratedFileSweepTests : IDisposable
         Assert.Equal(before, File.ReadAllBytes(page));
     }
 
+    [SkippableFact]
+    public void TheSiteListingDoesNotStepThroughASymlink()
+    {
+        // Linking a media folder into the published site rather than copying gigabytes into it is an
+        // ordinary thing to do, and everything behind that link is the user's. The recursive
+        // enumeration followed it, so their masters came back as files with no source and were listed
+        // as exactly that — the sentence a dialog uses to get a yes, and --force-clean is a yes
+        // already given. RemoveOrphans' containment check does not catch it either: a path through a
+        // link resolves to something inside the site while pointing elsewhere.
+        //
+        // Asked of the listing rather than through a generate, because the assertion is about the
+        // walk and a test that needs a symlink cannot also be an AvaloniaFact — the two attributes
+        // do not combine, and a test that quietly passes where links cannot be made is worse than
+        // one that says so.
+        var site = Directory.CreateDirectory(SitePath()).FullName;
+        File.WriteAllText(Path.Combine(site, "index.html"), "ours");
+
+        var theirs = Directory.CreateDirectory(Path.Combine(_root, "..",
+            "masters-" + Path.GetFileName(_root))).FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(theirs, "film.mp4"), "the user's master");
+
+            try { Directory.CreateSymbolicLink(Path.Combine(site, "media"), theirs); }
+            catch (Exception ex)
+            {
+                // Windows needs a privilege for this that a build agent may not have. Where links
+                // cannot be made the case cannot arise either, so saying why beats a false green.
+                Skip.If(true, $"this system would not make a symlink: {ex.Message}");
+            }
+
+            var listed = SiteGenerator.FilesInTheSite(site);
+
+            Assert.DoesNotContain(listed, f => f.Contains("film.mp4", StringComparison.Ordinal));
+            Assert.Contains(listed, f => f.EndsWith("index.html", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { Directory.Delete(Path.Combine(site, "media")); } catch { }
+            try { Directory.Delete(theirs, recursive: true); } catch { }
+        }
+    }
+
+    [SkippableFact]
+    public void TheEmptyDirectoryTidyDoesNotStepThroughASymlink()
+    {
+        // The naming walk got this rule; the tidy walk that runs at the end of every RemoveOrphans
+        // did not. It recurses through a linked directory and rmdirs empty folders at the target —
+        // only empty ones, so nothing of theirs is lost, but it is still a write outside the site in
+        // exactly the linked-media case the naming fix was about.
+        var site = Directory.CreateDirectory(SitePath()).FullName;
+        var theirs = Directory.CreateDirectory(Path.Combine(_root, "..",
+            "media-" + Path.GetFileName(_root))).FullName;
+
+        try
+        {
+            var theirEmpty = Directory.CreateDirectory(Path.Combine(theirs, "empty-sub")).FullName;
+
+            try { Directory.CreateSymbolicLink(Path.Combine(site, "linked"), theirs); }
+            catch (Exception ex)
+            {
+                Skip.If(true, $"this system would not make a symlink: {ex.Message}");
+            }
+
+            // And an empty directory of ours, to show the tidy still does its job.
+            var ours = Directory.CreateDirectory(Path.Combine(site, "ours-empty")).FullName;
+
+            SiteGenerator.RemoveEmptyDirectories(site, site);
+
+            Assert.True(Directory.Exists(theirEmpty), "an empty directory outside the site was removed");
+            Assert.False(Directory.Exists(ours), "the tidy stopped removing our own empty directories");
+        }
+        finally
+        {
+            try { Directory.Delete(Path.Combine(site, "linked")); } catch { }
+            try { Directory.Delete(theirs, recursive: true); } catch { }
+        }
+    }
+
     // ---- the record itself --------------------------------------------------
 
     [AvaloniaFact]
