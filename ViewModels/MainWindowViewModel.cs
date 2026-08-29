@@ -1119,7 +1119,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     ArtifactRename.Apply(from, change.Path);
                     break;
 
-                // A deletion we watched happen takes its settings and previews with it. Left behind
+                // A deletion we watched happen takes its yaml and previews with it. Left behind
                 // they are invisible — a hidden folder and a yaml for a file that isn't there —
                 // so they accumulate quietly for as long as a project is worked on.
                 case SourceChangeKind.Removed:
@@ -1532,7 +1532,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// difference the whole feature turns on.
     ///
     /// Its own dialog rather than a section in the _site one. Deleting a published page and deleting
-    /// a hidden settings file are decisions of very different weight, and running them together
+    /// a hidden yaml are decisions of very different weight, and running them together
     /// would make the lighter one carry the alarm of the heavier.
     /// </remarks>
     private async Task OfferSourceLeftovers(IReadOnlyList<string> leftovers)
