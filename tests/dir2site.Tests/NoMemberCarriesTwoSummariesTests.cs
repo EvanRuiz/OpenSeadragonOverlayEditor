@@ -20,9 +20,10 @@ namespace dir2site.Tests;
 /// repo whose comments are the source its documentation gets written from, that is the defect with
 /// no backstop.
 ///
-/// It has happened three times here. <c>QuickSync</c> lost its docstring to <c>Preview</c> and went
-/// undocumented on main; then twice in two commits on this branch, the second inside the commit
-/// fixing the first.
+/// It has happened four times here. <c>QuickSync</c> lost its docstring to <c>Preview</c> and went
+/// undocumented on main; then twice in two commits on one branch, the second inside the commit
+/// fixing the first; then once more with this guard already in place, because the stranded comment
+/// ended on <c>&lt;/remarks&gt;</c> and only <c>&lt;/summary&gt;</c> was matched.
 /// </summary>
 public class NoMemberCarriesTwoSummariesTests
 {
@@ -49,10 +50,13 @@ public class NoMemberCarriesTwoSummariesTests
                 // is no less likely than pasting without one.
                 var previous = PrecedingCode(lines, i);
 
-                // One summary ends and the next begins with no member between them. Both the
-                // multi-line and one-line forms end with the closing tag, so this catches either.
-                if (previous is not null
-                    && previous.EndsWith("</summary>", StringComparison.Ordinal))
+                // One doc block ends and the next begins with no member between them. The rule is
+                // not "two summaries in a row": what makes a comment stranded is that nothing was
+                // declared between it and the next one, whichever tag it happened to close on. A
+                // good stranded comment usually ends on </remarks>, so matching </summary> alone
+                // missed exactly the cases worth catching — this one arrived on a member whose
+                // docstring ran summary, remarks, and then the next member's summary.
+                if (previous is not null && ClosesADocBlock(previous))
                 {
                     offenders.Add($"  {relative}:{i + 1}");
                 }
@@ -65,6 +69,15 @@ public class NoMemberCarriesTwoSummariesTests
             + "member below is undocumented — move the stranded one down onto what it describes:\n"
             + string.Join("\n", offenders));
     }
+
+    /// <summary>
+    /// Whether this line ends a documentation block — any of them, not just a summary.
+    /// </summary>
+    private static bool ClosesADocBlock(string line) =>
+        DocBlockEndings.Any(tag => line.EndsWith(tag, StringComparison.Ordinal));
+
+    private static readonly string[] DocBlockEndings =
+        ["</summary>", "</remarks>", "</returns>", "</example>", "</value>"];
 
     /// <summary>
     /// The nearest line above <paramref name="index"/> that is neither blank nor a bare
