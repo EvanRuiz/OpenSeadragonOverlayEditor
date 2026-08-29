@@ -280,9 +280,12 @@ public class NothingButOurOwnIsOfferedTests : IDisposable
     [Fact]
     public void AGenuineLeftoverIsStillFound()
     {
-        // The other side of it: the rule above must not have turned the sweep off.
+        // The other side of it: the rule above must not have turned the sweep off. A genuine
+        // leftover is one this app worked beside, so the fixture leaves what that leaves — the
+        // previews folder every generator makes before it tries anything.
         File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
         File.WriteAllText(At("Portrait.jpg.yaml"), "type: photo\ncaption: A Portrait\n");
+        Directory.CreateDirectory(At(".dir2site", "Portrait"));
         File.Delete(At("Portrait.jpg"));
 
         Assert.Contains(At("Portrait.jpg.yaml"), SourceLeftovers.FindLeftoverYamls(_root));
@@ -421,6 +424,86 @@ public class NothingButOurOwnIsOfferedTests : IDisposable
             try { Directory.Delete(At("Inside", "out")); } catch { }
             try { Directory.Delete(theirs, recursive: true); } catch { }
         }
+    }
+
+    [Theory]
+    [InlineData("a previews folder")]
+    [InlineData("an empty previews folder")]
+    [InlineData("a stamp")]
+    public void AYamlIsOfferedOnAnyEvidenceWeWorkedBesideIt(string evidence)
+    {
+        // Three shapes, all of them real. Every generator makes the previews folder before it tries
+        // anything, so a video whose poster never downloaded leaves an empty one — and that still
+        // says this app was here, which is the whole question.
+        File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
+        File.WriteAllText(At("Portrait.jpg.yaml"), "type: photo\ncaption: A Portrait\n");
+
+        switch (evidence)
+        {
+            case "a stamp": PreviewGenerator.WriteStamp(At("Portrait.jpg")); break;
+            case "an empty previews folder": Directory.CreateDirectory(At(".dir2site", "Portrait")); break;
+            default:
+                Directory.CreateDirectory(At(".dir2site", "Portrait"));
+                File.WriteAllText(At(".dir2site", "Portrait", "preview-Portrait.webp"), "thumb");
+                break;
+        }
+
+        File.Delete(At("Portrait.jpg"));
+
+        Assert.Contains(At("Portrait.jpg.yaml"), SourceLeftovers.FindLeftoverYamls(_root));
+    }
+
+    [Fact]
+    public void AMetadataCollectionWeNeverTouchedIsNotOfferedAtAll()
+    {
+        // Somebody keeping hand-written metadata beside images that live elsewhere has a folder
+        // where every file matches the leftover shape — that is what a yaml looks like, which is
+        // exactly the difficulty. Shape alone offered the whole collection for deletion, and inside
+        // a project that has been generated for years there is no first-contact rule left to catch
+        // it. Evidence in our own folder is what separates the two.
+        foreach (var name in new[] { "Aunt Mary.jpg", "The Mill.jpg", "Harvest.jpg" })
+            File.WriteAllText(At(name + ".yaml"), $"type: photo\ncaption: {name}\n");
+
+        // A real, generated artifact beside them, so the project is plainly one of ours.
+        File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
+        File.WriteAllText(At("Portrait.jpg.yaml"), "type: photo\ncaption: A Portrait\n");
+        Directory.CreateDirectory(At(".dir2site", "Portrait"));
+
+        Assert.Empty(SourceLeftovers.FindLeftoverYamls(_root));
+    }
+
+    [Fact]
+    public void AYamlIsAskedAboutOnceAndThenLeftAlone()
+    {
+        // Decided behaviour, not a side effect. The evidence a yaml is offered on is the same thing
+        // the sweep takes on the run that offers it, so declining leaves it a permanent, silent
+        // resident of the user's folder. The alternative is asking the same question on every
+        // generate for the life of the project, which teaches people to click through dialogs.
+        File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
+        File.WriteAllText(At("Portrait.jpg.yaml"), "type: photo\ncaption: A Portrait\n");
+        Directory.CreateDirectory(At(".dir2site", "Portrait"));
+        File.Delete(At("Portrait.jpg"));
+
+        Assert.Contains(At("Portrait.jpg.yaml"), SourceLeftovers.FindLeftoverYamls(_root));
+
+        // Declined: nothing is deleted. The sweep runs anyway, as it does on every generate.
+        SourceLeftovers.RemoveGeneratedLeftovers(_root);
+
+        Assert.Empty(SourceLeftovers.FindLeftoverYamls(_root));
+        Assert.True(File.Exists(At("Portrait.jpg.yaml")), "declining must leave the file alone");
+    }
+
+    [Fact]
+    public void AnArtifactDeletedBeforeItWasEverGeneratedLeavesAYamlNobodyIsAskedAbout()
+    {
+        // The accepted gap, pinned so it is visibly deliberate rather than discovered. Nothing was
+        // written beside this file to show for, so there is nothing to offer it on.
+        File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
+        File.WriteAllText(At("Portrait.jpg.yaml"), "type: photo\ncaption: A Portrait\n");
+        File.Delete(At("Portrait.jpg"));
+
+        Assert.Empty(SourceLeftovers.FindLeftoverYamls(_root));
+        Assert.True(File.Exists(At("Portrait.jpg.yaml")));
     }
 
     [Fact]

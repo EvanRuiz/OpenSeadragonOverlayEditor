@@ -22,8 +22,8 @@ namespace dir2site.Services;
 /// <see cref="RemoveGeneratedLeftovers"/> when nothing was watching and by <see cref="RemoveFor"/> when
 /// something was. It never reaches a dialog.</description></item>
 /// <item><description>The yaml — <em>user data</em>, despite this app having scaffolded the file.
-/// The captions and credits in it are the user's work, and it is the one thing worth asking
-/// about.</description></item>
+/// The captions and credits in it are the user's work, and it is the one thing worth asking about —
+/// and only ever on evidence that this app once worked beside the artifact it names.</description></item>
 /// <item><description>Everything else in the project folder — the user's, and never named here
 /// however disposable it looks.</description></item>
 /// </list>
@@ -32,6 +32,18 @@ namespace dir2site.Services;
 /// the user's yaml, and is found and put to them. Nothing else is either, and nothing else may be
 /// named. The methods are named for that split: <see cref="RemoveGeneratedLeftovers"/> takes the
 /// first kind, <see cref="FindLeftoverYamls"/> reports the second.</para>
+///
+/// <para><b>Asked once, and then not again.</b> The evidence a yaml is offered on — the artifact's
+/// previews folder, its stamp — is the same thing <see cref="RemoveGeneratedLeftovers"/> takes on
+/// the run that offers it. So a yaml the user declines has nothing backing it afterwards and is
+/// never raised a second time. That is deliberate: the alternative is an app that asks the same
+/// question on every generate for the life of the project, and a nag teaches people to click
+/// through dialogs rather than read them. Declining leaves the yaml where it is, permanently and
+/// quietly, which is the user's folder behaving as they left it.</para>
+///
+/// <para>One artifact deleted before a generate ever ran for it leaves a yaml that is never offered,
+/// because nothing was ever written beside it to show for. That is litter, and litter is the trade
+/// this class makes every time the alternative is deleting something on inference.</para>
 ///
 /// <para>The rule is a whitelist and has to stay one. It was broken once by a change that decided a
 /// folder was disposable by listing the things that don't count in it — an ignore list borrowed from
@@ -74,21 +86,13 @@ public static class SourceLeftovers
 
         var present = new HashSet<string>(files.Select(Path.GetFileName)!, StringComparer.OrdinalIgnoreCase);
 
-        // "Portrait.jpg.yaml" belongs to "Portrait.jpg". The legacy "Portrait.yaml" form is
-        // deliberately not considered: beside a missing Portrait.jpg it is indistinguishable from a
-        // hand-written file that happens to share the name, and there is no way to tell which
-        // without asking.
-        var yamlFiles = files
-            .Where(f => IsCurrentConventionYaml(Path.GetFileName(f))
-                     && !present.Contains(Path.GetFileNameWithoutExtension(Path.GetFileName(f))))
-            .ToList();
-
         var stems = new HashSet<string>(
             files.Where(f => !DirectoryTraverser.IsYamlName(Path.GetFileName(f)))
                  .Select(Path.GetFileNameWithoutExtension)!,
             StringComparer.OrdinalIgnoreCase);
 
         var previewDirs = new List<string>();
+        var worked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var dir2site = Path.Combine(dir, ".dir2site");
 
         // The walk's symlink guard never sees this one: .dir2site is skipped by name on the way past,
@@ -101,8 +105,10 @@ public static class SourceLeftovers
             try
             {
                 foreach (var sub in Directory.GetDirectories(dir2site))
-                    if (!stems.Contains(Path.GetFileName(sub)))
-                        previewDirs.Add(sub);
+                {
+                    worked.Add(Path.GetFileName(sub));
+                    if (!stems.Contains(Path.GetFileName(sub))) previewDirs.Add(sub);
+                }
 
                 // The stamp is a file directly in .dir2site rather than inside the previews folder,
                 // deliberately — anything in that folder is copied wholesale into the site and
@@ -110,11 +116,31 @@ public static class SourceLeftovers
                 // had gone could never be found by it. RemoveFor takes it on a deletion we watched;
                 // nothing watching is the case this whole class exists for.
                 foreach (var file in Directory.GetFiles(dir2site, "*.stamp"))
-                    if (!stems.Contains(Path.GetFileNameWithoutExtension(file)))
-                        previewDirs.Add(file);
+                {
+                    worked.Add(Path.GetFileNameWithoutExtension(file));
+                    if (!stems.Contains(Path.GetFileNameWithoutExtension(file))) previewDirs.Add(file);
+                }
             }
             catch { /* unreadable is not the same as empty; say nothing about this folder */ }
         }
+
+        // "Portrait.jpg.yaml" belongs to "Portrait.jpg". The legacy "Portrait.yaml" form is
+        // deliberately not considered: beside a missing Portrait.jpg it is indistinguishable from a
+        // hand-written file that happens to share the name, and there is no way to tell which
+        // without asking.
+        //
+        // And the shape is not enough on its own. Somebody keeping hand-written metadata beside
+        // images that live elsewhere has a folder where every file matches it — that is what a yaml
+        // looks like, which is exactly the problem — so on first contact the whole collection was
+        // offered for deletion. What settles it is evidence in our own folder that this app once
+        // worked beside that artifact: a previews directory of its own, or a stamp. An empty
+        // previews directory counts, because every generator makes one before it tries anything, so
+        // a video whose poster never downloaded still left the mark.
+        var yamlFiles = files
+            .Where(f => IsCurrentConventionYaml(Path.GetFileName(f))
+                     && !present.Contains(Path.GetFileNameWithoutExtension(Path.GetFileName(f)))
+                     && worked.Contains(PreviewStem(Path.GetFileName(f))))
+            .ToList();
 
         return new Analysis(yamlFiles, previewDirs);
     }
@@ -139,6 +165,11 @@ public static class SourceLeftovers
         var underneath = Path.GetExtension(Path.GetFileNameWithoutExtension(name));
         return underneath.Length > 0 && YamlParser.ExtensionToType.ContainsKey(underneath);
     }
+
+    /// <summary>The name an artifact's previews folder and stamp are called after, from its yaml.</summary>
+    /// <remarks>Two extensions come off: <c>Portrait.jpg.yaml</c> is kept under <c>Portrait</c>.</remarks>
+    private static string PreviewStem(string yamlName) =>
+        Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(yamlName));
 
     /// <summary>
     /// Takes away the yaml and previews belonging to an artifact the user deleted.

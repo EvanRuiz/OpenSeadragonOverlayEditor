@@ -113,6 +113,7 @@ public static class GenerateCommand
 
         (string Summary, IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings,
             IReadOnlyList<string> Orphans) result;
+        IReadOnlyList<string> leftoverYamls = [];
         try
         {
             Stage("Scanning for changes...");
@@ -130,6 +131,13 @@ public static class GenerateCommand
             // Only that half. The yamls the same sweep finds are the user's captions and credits,
             // and this command has nobody to ask — so it leaves them alone rather than deciding for
             // them, which is the same call it makes about files in _site it cannot account for.
+            //
+            // Asked before they are deleted, and that order is the whole of "asks once": the
+            // evidence that an artifact was ever ours is the previews folder and stamp that
+            // deletion takes, so a yaml looked at afterwards has nothing backing it and would never
+            // be named at all rather than named once.
+            leftoverYamls = SourceLeftovers.FindLeftoverYamls(projectFolder);
+
             Stage("Deleting previews of artifacts that have gone...");
             SourceLeftovers.RemoveGeneratedLeftovers(projectFolder, tracker);
 
@@ -159,7 +167,6 @@ public static class GenerateCommand
         // alike: the site's orphans were listed and the leftover yamls were passed over in silence,
         // so a project generated only from a script accumulated the captions of artifacts that had
         // gone with nothing ever saying so. Same situation, same treatment.
-        var leftoverYamls = SourceLeftovers.FindLeftoverYamls(projectFolder);
 
         Report(output, result.Orphans.Count, "file(s) in _site no longer have a source:",
             result.Orphans, forceClean);

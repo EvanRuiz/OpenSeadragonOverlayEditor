@@ -1349,8 +1349,11 @@ public partial class MainWindowViewModel : ViewModelBase
             // and are the one thing worth a dialog.
             if (!_siteIsAccountedFor)
             {
-                await Task.Run(() => SourceLeftovers.RemoveGeneratedLeftovers(DirectoryRoot!, tracker), cancel);
+                // Asked before it is swept: the evidence that an artifact was ever ours is the very
+                // previews and stamps the sweep takes, so a yaml looked at afterwards has nothing
+                // backing it and is never named at all rather than named once.
                 sourceLeftovers = await Task.Run(() => SourceLeftovers.FindLeftoverYamls(DirectoryRoot!), cancel);
+                await Task.Run(() => SourceLeftovers.RemoveGeneratedLeftovers(DirectoryRoot!, tracker), cancel);
             }
 
             // Generate previews first so site settings (PDF resize/quality) affect output

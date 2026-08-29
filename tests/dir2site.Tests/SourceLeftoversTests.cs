@@ -184,6 +184,9 @@ public class SourceLeftoversTests : IDisposable
         Directory.CreateDirectory(At("Photographs"));
         File.WriteAllText(At("Photographs", "Letter.jpg"), "jpeg");
         File.WriteAllText(At("Photographs", "Letter.jpg.yaml"), "type: photo\ncaption: A letter\n");
+        // What a generate leaves beside an artifact, which is what makes its yaml a leftover rather
+        // than a file that merely looks like one.
+        Directory.CreateDirectory(At("Photographs", ".dir2site", "Letter"));
 
         File.Delete(At("Portrait.jpg"));
         File.Delete(At("Photographs", "Letter.jpg"));
