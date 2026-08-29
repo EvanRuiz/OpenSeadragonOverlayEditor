@@ -43,6 +43,7 @@ public class NothingSaysSidecarTests
         "docs/the-footer.md",
         "docs/writing-articles.md",
         "docs/adding-videos.md",
+        "docs/command-line.md",
     };
 
     public static TheoryData<string> ReaderFacingDocs()

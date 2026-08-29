@@ -53,6 +53,7 @@ The full reference lives in `docs/`:
 - **[Writing Markdown articles](docs/writing-articles.md)** — Markdown support, images, and figures
 - **[Adding videos](docs/adding-videos.md)** — `.url` shortcuts, start offsets, thumbnails, playback
 - **[The footer](docs/the-footer.md)** — footer columns, link forms, and icons
+- **[Generating from the command line](docs/command-line.md)** — `--generate` for scripts and CI
 
 ## Platform support
 
