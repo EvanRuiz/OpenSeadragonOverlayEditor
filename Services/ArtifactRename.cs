@@ -10,12 +10,12 @@ using System.Text.Json.Nodes;
 namespace dir2site.Services;
 
 /// <summary>
-/// Keeps an artifact's sidecar, thumbnails and caption with it when its file is renamed.
+/// Keeps an artifact's yaml, thumbnails and caption with it when its file is renamed.
 /// </summary>
 /// <remarks>
-/// Everything about an artifact except its bytes is keyed on its filename: the sidecar is
+/// Everything about an artifact except its bytes is keyed on its filename: the yaml is
 /// <c>Portrait.jpg.yaml</c>, the previews live in <c>.dir2site/Portrait/</c> and are named after the
-/// stem again inside. Renaming the photo used to strand all of it — a fresh sidecar was scaffolded
+/// stem again inside. Renaming the photo used to strand all of it — a fresh yaml was scaffolded
 /// for the new name, fresh thumbnails were rendered beside it, and the old set stayed behind for
 /// good, along with whatever caption and settings the user had written into it.
 /// </remarks>
@@ -34,12 +34,12 @@ public static class ArtifactRename
         if (string.Equals(oldPath, newPath, StringComparison.Ordinal)) return;
 
         // Renaming an article to index.md makes it the folder's introduction, and an introduction
-        // has no sidecar or previews: carrying them over would create the one file this convention
+        // has no yaml or previews: carrying them over would create the one file this convention
         // promises never exists. The old pair is left where it is, so the leftovers sweep offers it
         // rather than this deleting a user's file on its own initiative.
         if (DirectoryTraverser.IsFolderIntro(newPath)) return;
 
-        var yamlPath = MoveSidecar(oldPath, newPath);
+        var yamlPath = MoveYaml(oldPath, newPath);
         MovePreviews(oldPath, newPath);
 
         if (yamlPath != null)
@@ -49,7 +49,7 @@ public static class ArtifactRename
     }
 
     /// <summary>
-    /// Renames the sidecar, and returns where it now is.
+    /// Renames the yaml, and returns where it now is.
     /// </summary>
     /// <remarks>
     /// Both spellings are looked for, matching <c>YamlParser.FindYamlMeta</c>, but only the current
@@ -57,12 +57,12 @@ public static class ArtifactRename
     /// rather than to <c>Headshot.yaml</c>, so the file quietly joins the convention it is already
     /// being read under instead of being carried further.
     /// </remarks>
-    private static string? MoveSidecar(string oldPath, string newPath)
+    private static string? MoveYaml(string oldPath, string newPath)
     {
         var destination = newPath + ".yaml";
         if (File.Exists(destination) || File.Exists(newPath + ".yml")) return null;
 
-        foreach (var candidate in SidecarCandidates(oldPath))
+        foreach (var candidate in YamlCandidates(oldPath))
         {
             if (!File.Exists(candidate)) continue;
 
@@ -80,7 +80,7 @@ public static class ArtifactRename
         return null;
     }
 
-    private static IEnumerable<string> SidecarCandidates(string path)
+    private static IEnumerable<string> YamlCandidates(string path)
     {
         var dir  = Path.GetDirectoryName(path) ?? string.Empty;
         var name = Path.GetFileName(path);
@@ -91,7 +91,7 @@ public static class ArtifactRename
             yield return Path.Combine(dir, name + ext);
 
             // The legacy form, guarded against a file naming itself — "Portrait.yaml" is both a
-            // sidecar for "Portrait.jpg" and a plausible artifact in its own right.
+            // yaml for "Portrait.jpg" and a plausible artifact in its own right.
             var legacy = Path.Combine(dir, stem + ext);
             if (!string.Equals(legacy, path, StringComparison.OrdinalIgnoreCase))
                 yield return legacy;
@@ -261,7 +261,7 @@ public static class ArtifactRename
     }
 
     /// <summary>
-    /// Brings the sidecar's own contents into line with the new name — the preview paths, and the
+    /// Brings the yaml's own contents into line with the new name — the preview paths, and the
     /// caption if it was ours to change.
     /// </summary>
     private static void RepointYaml(string yamlPath, string oldPath, string newPath)
@@ -305,7 +305,7 @@ public static class ArtifactRename
     /// The caption this file should now have, or null to leave it alone.
     /// </summary>
     /// <remarks>
-    /// A scaffolded sidecar seeds its caption from the filename, so an untouched caption is just the
+    /// A scaffolded yaml seeds its caption from the filename, so an untouched caption is just the
     /// old name spelled nicely — and after a rename it announces the wrong thing on the card. But a
     /// caption the user wrote is the whole point of having the field, and rewriting it because they
     /// tidied a filename would be worse than leaving it stale.
@@ -334,7 +334,7 @@ public static class ArtifactRename
                 ? YamlParser.StripVideoProviderSuffix(path)
                 : path);
 
-    /// <summary>The sidecar's top-level scalars, for deciding what is safe to change.</summary>
+    /// <summary>The yaml's top-level scalars, for deciding what is safe to change.</summary>
     private static Dictionary<string, string> Read(string yamlPath)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

@@ -9,7 +9,7 @@ using Xunit;
 namespace dir2site.Tests;
 
 /// <summary>
-/// Noticing sidecars and preview folders whose artifact is no longer beside them.
+/// Noticing yaml files and preview folders whose artifact is no longer beside them.
 /// </summary>
 /// <remarks>
 /// Both are named after the file they belong to, so a rename or a deletion carried out while
@@ -46,7 +46,7 @@ public class SourceLeftoversTests : IDisposable
     [Fact]
     public void ARenameMadeWhileNothingWasWatching_IsNotGuessedAt()
     {
-        // One leftover sidecar beside one file without one is a rename — and equally a photo
+        // One leftover yaml beside one file without one is a rename — and equally a photo
         // deleted and a different photo added, which is an ordinary way to work. Pairing them moved
         // the deleted photo's caption, credit and date onto an unrelated picture. Only the watcher
         // can tell the two apart, and it wasn't running.
@@ -55,7 +55,7 @@ public class SourceLeftoversTests : IDisposable
 
         var analysis = SourceLeftovers.InDirectory(_root);
 
-        Assert.Contains(analysis.Sidecars, s => s.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
+        Assert.Contains(analysis.YamlFiles, s => s.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
         Assert.False(File.Exists(At("Headshot.jpg.yaml")));
     }
 
@@ -71,32 +71,32 @@ public class SourceLeftoversTests : IDisposable
         var analysis = SourceLeftovers.InDirectory(_root);
 
         Assert.False(File.Exists(At("Sunset.jpg.yaml")));
-        Assert.Contains(analysis.Sidecars, s => s.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
+        Assert.Contains(analysis.YamlFiles, s => s.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
     }
 
     // ---- what is reported ---------------------------------------------------
 
     [Fact]
-    public void ADeletedPhotoLeavesItsSidecarAndPreviewsToBeAskedAbout()
+    public void ADeletedPhotoLeavesItsYamlAndPreviewsToBeAskedAbout()
     {
         MakePhoto("Portrait.jpg", "Grandmother");
         File.Delete(At("Portrait.jpg"));
 
         var analysis = SourceLeftovers.InDirectory(_root);
 
-        Assert.Contains(analysis.Sidecars, s => s.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
+        Assert.Contains(analysis.YamlFiles, s => s.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
         Assert.Contains(analysis.PreviewDirs, d => Path.GetFileName(d) == "Portrait");
     }
 
     [Fact]
-    public void ALegacySidecarIsNeverReportedAsLeftOver()
+    public void ALegacyYamlIsNeverReportedAsLeftOver()
     {
         // "Portrait.yaml" beside a missing "Portrait.jpg" is indistinguishable from a hand-written
         // file that happens to share the name. Offering it for deletion on that evidence is not a
         // mistake anyone can undo.
         File.WriteAllText(At("Portrait.yaml"), "type: photo\ncaption: Grandmother\n");
 
-        Assert.Empty(SourceLeftovers.InDirectory(_root).Sidecars);
+        Assert.Empty(SourceLeftovers.InDirectory(_root).YamlFiles);
     }
 
     [Fact]
@@ -107,20 +107,20 @@ public class SourceLeftoversTests : IDisposable
 
         var analysis = SourceLeftovers.InDirectory(_root);
 
-        Assert.Empty(analysis.Sidecars);
+        Assert.Empty(analysis.YamlFiles);
         Assert.Empty(analysis.PreviewDirs);
     }
 
     [Fact]
     public void ANewlyAddedPhotoIsNotALeftover()
     {
-        // It has no sidecar yet because nothing has scanned it, which is not the same as having
+        // It has no yaml yet because nothing has scanned it, which is not the same as having
         // lost one.
         File.WriteAllText(At("New.jpg"), "not really a jpeg");
 
         var analysis = SourceLeftovers.InDirectory(_root);
 
-        Assert.Empty(analysis.Sidecars);
+        Assert.Empty(analysis.YamlFiles);
         Assert.Empty(analysis.PreviewDirs);
     }
 
@@ -154,7 +154,7 @@ public class SourceLeftoversTests : IDisposable
     // ---- taking them away, once we know -------------------------------------
 
     [Fact]
-    public void AWitnessedDelete_TakesTheSidecarAndPreviewsWithIt()
+    public void AWitnessedDelete_TakesTheYamlAndPreviewsWithIt()
     {
         MakePhoto("Portrait.jpg", "Grandmother");
         MakePhoto("Landscape.jpg", "The valley");
@@ -171,7 +171,7 @@ public class SourceLeftoversTests : IDisposable
     }
 
     [Fact]
-    public void ALegacySidecarIsNeverDeletedEvenForAWitnessedDelete()
+    public void ALegacyYamlIsNeverDeletedEvenForAWitnessedDelete()
     {
         // Same reasoning as never reporting it: being sure the artifact went says nothing about
         // what this file is.

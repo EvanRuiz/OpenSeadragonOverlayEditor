@@ -3,13 +3,15 @@
 using System;
 using System.Runtime.Versioning;
 
+using dir2site.Services;
+
 namespace dir2site.SftpSync.Core.Credentials;
 
 /// <summary>Linux credential store backed by libsecret via the <c>secret-tool</c> CLI.</summary>
 [SupportedOSPlatform("linux")]
 public sealed class LinuxCredentialStore : ICredentialStore
 {
-    private const string Service = "dir2site";
+    private static readonly string Service = AppDataPaths.CredentialService;
 
     public bool IsSecure => true;
 

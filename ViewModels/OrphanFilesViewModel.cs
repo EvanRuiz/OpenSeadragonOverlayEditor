@@ -16,7 +16,7 @@ public enum OrphanKind
     /// <summary>Pages and assets in <c>_site</c> — published, and reachable by anyone with the URL.</summary>
     Site,
 
-    /// <summary>Sidecars and <c>.dir2site</c> folders in the project — clutter, never published.</summary>
+    /// <summary>Yaml files and <c>.dir2site</c> folders in the project — clutter, never published.</summary>
     Source,
 }
 
@@ -26,7 +26,7 @@ public enum OrphanKind
 /// <remarks>
 /// Ticked to begin with only when we could make it again. That is true of everything in
 /// <c>_site</c> and of a <c>.dir2site</c> preview folder — all of it is output, and leaving it is
-/// what keeps deleted content on the published site. It is emphatically not true of a sidecar: the
+/// what keeps deleted content on the published site. It is emphatically not true of a yaml: the
 /// caption, credit and date in it were typed by a person, and if the artifact was renamed rather
 /// than deleted that file is the only surviving copy of them. Removing it is still offered, because
 /// after a real deletion it is just clutter — but not on a default nobody chose.
@@ -69,7 +69,7 @@ public partial class OrphanFilesViewModel : ViewModelBase
     /// Whether losing this file would cost the user anything they can't get back.
     /// </summary>
     /// <remarks>
-    /// Only a sidecar fails this, and only in the project folder — everything else here is
+    /// Only a yaml fails this, and only in the project folder — everything else here is
     /// generated. See <see cref="OrphanFileItem"/> for why that decides the tick.
     /// </remarks>
     private static bool CanBeMadeAgain(string path) =>
@@ -86,7 +86,7 @@ public partial class OrphanFilesViewModel : ViewModelBase
 
     /// <summary>
     /// Which of the two kinds of leftover this is. They read very differently to someone deciding:
-    /// a page in the published site is content visitors can still reach, whereas a stray sidecar is
+    /// a page in the published site is content visitors can still reach, whereas a stray yaml is
     /// invisible clutter — and the second is much less alarming to be asked about.
     /// </summary>
     public string Headline => (_kind, Items.Count) switch

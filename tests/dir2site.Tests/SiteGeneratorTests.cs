@@ -55,7 +55,7 @@ public class SiteGeneratorTests : IDisposable
     }
 
     /// <summary>
-    /// Writes a fake artifact plus the sidecar YAML that makes it show up in the tree. The preview
+    /// Writes a fake artifact plus the yaml that makes it show up in the tree. The preview
     /// paths are the ones preview generation would have written, so cards get thumbnails without
     /// these tests having to decode an image.
     /// </summary>

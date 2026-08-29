@@ -400,8 +400,8 @@ public static class YamlParser
     /// <remarks>
     /// This runs for every artifact on every generate, so it is the app's most frequent YAML
     /// write. It used to round-trip the file through a dictionary, which kept other fields' values
-    /// but discarded every comment and any formatting the user had applied. Sidecars are exactly
-    /// the files people annotate by hand, so the edit is now surgical
+    /// but discarded every comment and any formatting the user had applied. An artifact's yaml is
+    /// exactly the kind of file people annotate by hand, so the edit is now surgical
     /// (<see cref="YamlDocumentEditor"/>), with the old whole-file rewrite kept only as a fallback
     /// for documents that cannot be edited in place.
     /// </remarks>
@@ -433,7 +433,7 @@ public static class YamlParser
     }
 
     /// <summary>
-    /// Brings the named keys into line in a sidecar, surgically — other values, comments, key order
+    /// Brings the named keys into line in a yaml, surgically — other values, comments, key order
     /// and formatting all survive.
     /// </summary>
     /// <remarks>

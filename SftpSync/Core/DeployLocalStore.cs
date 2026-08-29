@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
+using dir2site.Services;
+
 namespace dir2site.SftpSync.Core;
 
 /// <summary>
@@ -20,9 +22,7 @@ public static class DeployLocalStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>e.g. <c>%AppData%/dir2site/local</c>.</summary>
-    public static string LocalDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "dir2site", "local");
+    public static string LocalDir { get; } = AppDataPaths.Area("local");
 
     private static string PathFor(string projectRoot) =>
         Path.Combine(LocalDir, SftpProfileStore.ProjectKey(projectRoot) + ".json");

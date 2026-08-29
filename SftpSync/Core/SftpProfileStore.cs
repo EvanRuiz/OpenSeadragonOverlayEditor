@@ -6,6 +6,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+using dir2site.Services;
+
 namespace dir2site.SftpSync.Core;
 
 /// <summary>
@@ -18,9 +20,7 @@ public static class SftpProfileStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>Directory where profile JSON files are stored, e.g. <c>%AppData%/dir2site/profiles</c>.</summary>
-    public static string ProfilesDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "dir2site", "profiles");
+    public static string ProfilesDir { get; } = AppDataPaths.Area("profiles");
 
     private static string NormalizeProject(string projectRoot) =>
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot));

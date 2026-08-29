@@ -174,11 +174,6 @@ public static class SftpSyncService
     }
 
     /// <summary>
-    /// Fast-path deploy: diff the local site against the server manifest (last-uploaded snapshot)
-    /// and upload only new/changed files. Reports — but never deletes — stale remote files.
-    /// When <paramref name="forceFull"/> is true, ignores the manifest and re-uploads everything.
-    /// </summary>
-    /// <summary>
     /// Works out what <see cref="QuickSync"/> would do, without changing anything on the server.
     /// </summary>
     /// <remarks>
@@ -250,6 +245,11 @@ public static class SftpSyncService
         };
     }
 
+    /// <summary>
+    /// Fast-path deploy: diff the local site against the server manifest (last-uploaded snapshot)
+    /// and upload only new/changed files. Reports — but never deletes — stale remote files.
+    /// When <paramref name="forceFull"/> is true, ignores the manifest and re-uploads everything.
+    /// </summary>
     public static SyncResult QuickSync(
         string siteRoot,
         SftpProfile profile,

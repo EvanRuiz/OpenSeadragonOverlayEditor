@@ -11,7 +11,7 @@ namespace dir2site.Tests;
 /// What follows an artifact when its file is renamed.
 /// </summary>
 /// <remarks>
-/// Everything about an artifact except its bytes is keyed on the filename — the sidecar is named
+/// Everything about an artifact except its bytes is keyed on the filename — the yaml is named
 /// after it, the preview folder is named after its stem, and the files inside spell the stem out
 /// again. So a rename either carries all of it or strands all of it.
 /// </remarks>
@@ -30,7 +30,7 @@ public class ArtifactRenameTests : IDisposable
 
     private string At(params string[] parts) => Path.Combine([_root, .. parts]);
 
-    /// <summary>A photo with the sidecar and thumbnails generation would have left behind.</summary>
+    /// <summary>A photo with the yaml and thumbnails generation would have left behind.</summary>
     private string MakePhoto(string fileName, string caption)
     {
         var stem = Path.GetFileNameWithoutExtension(fileName);
@@ -59,10 +59,10 @@ public class ArtifactRenameTests : IDisposable
 
     private static string Yaml(string artifactPath) => File.ReadAllText(artifactPath + ".yaml");
 
-    // ---- the sidecar and its assets ---------------------------------------
+    // ---- the yaml and its assets ---------------------------------------
 
     [Fact]
-    public void TheSidecarAndPreviewsFollowTheFile()
+    public void TheYamlAndPreviewsFollowTheFile()
     {
         MakePhoto("Portrait.jpg", "Portrait");
         File.Move(At("Portrait.jpg"), At("Headshot.jpg"));
@@ -106,9 +106,9 @@ public class ArtifactRenameTests : IDisposable
     }
 
     [Fact]
-    public void ALegacySidecarJoinsTheCurrentConvention()
+    public void ALegacyYamlJoinsTheCurrentConvention()
     {
-        // Portrait.yaml is still read as Portrait.jpg's sidecar. Renaming is a natural moment to
+        // Portrait.yaml is still read as Portrait.jpg's yaml. Renaming is a natural moment to
         // stop carrying the old spelling forward, rather than producing Headshot.yaml and keeping
         // the ambiguity alive for another round.
         File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
@@ -264,7 +264,7 @@ public class ArtifactRenameTests : IDisposable
     // ---- refusing to overwrite ---------------------------------------------
 
     [Fact]
-    public void ASidecarAlreadyAtTheDestination_IsNotReplaced()
+    public void AYamlAlreadyAtTheDestination_IsNotReplaced()
     {
         MakePhoto("Portrait.jpg", "Portrait");
         MakePhoto("Headshot.jpg", "Somebody else");
@@ -331,7 +331,7 @@ public class ArtifactRenameTests : IDisposable
     }
 
     [Fact]
-    public void WithNoSidecarOrPreviews_NothingHappensAndNothingThrows()
+    public void WithNoYamlOrPreviews_NothingHappensAndNothingThrows()
     {
         File.WriteAllText(At("Portrait.jpg"), "not really a jpeg");
         File.Move(At("Portrait.jpg"), At("Headshot.jpg"));

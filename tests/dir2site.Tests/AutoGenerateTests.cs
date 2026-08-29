@@ -307,7 +307,7 @@ public class AutoGenerateTests : IDisposable
     [AvaloniaFact]
     public async Task SourceLeftoversNeverBlockADeploy()
     {
-        // A sidecar and a hidden preview folder stay on the machine, so gating a deploy on them
+        // A yaml and a hidden preview folder stay on the machine, so gating a deploy on them
         // would be a prompt with nothing behind it.
         var photos = Directory.CreateDirectory(Path.Combine(_root, "Photographs")).FullName;
         MakeArtifact(photos, "Portrait.jpg", "A Portrait");
@@ -318,7 +318,7 @@ public class AutoGenerateTests : IDisposable
         await vm.LoadDirectoryCommand.ExecuteAsync(null);
         await vm.GenerateSiteCommand.ExecuteAsync(null);
 
-        // Deleting the source but not its sidecar, with nothing watching — a leftover in the
+        // Deleting the source but not its yaml, with nothing watching — a leftover in the
         // project folder, and one in _site that the sweep will offer separately.
         File.Delete(Path.Combine(photos, "Portrait.jpg"));
 
@@ -326,7 +326,7 @@ public class AutoGenerateTests : IDisposable
         await vm.LoadDirectoryCommand.ExecuteAsync(null);
         await vm.GenerateSiteCommand.ExecuteAsync(null);
 
-        // The sidecar survives: nothing saw the deletion, so it is offered rather than assumed —
+        // The yaml survives: nothing saw the deletion, so it is offered rather than assumed —
         // and under auto-generate that offer waits for a generate the user asked for.
         Assert.True(File.Exists(Path.Combine(photos, "Portrait.jpg.yaml")));
 
@@ -341,7 +341,7 @@ public class AutoGenerateTests : IDisposable
 
         await vm.QuickSyncCommand.ExecuteAsync(null);
 
-        // Whatever the deploy asked about, none of it was the sidecar.
+        // Whatever the deploy asked about, none of it was the yaml.
         Assert.DoesNotContain(asked.SelectMany(a => a), o => o.Contains(".yaml", StringComparison.Ordinal));
     }
 

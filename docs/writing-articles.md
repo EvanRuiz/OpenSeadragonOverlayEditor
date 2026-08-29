@@ -13,7 +13,7 @@ This page covers the conventions and the bits beyond plain Markdown.
 ## The basics
 
 - **One file = one article.** `MyArticle.md` becomes a page at `MyArticle/` in the generated site.
-- **Metadata lives in the sidecar**, not the body. Dir2Site creates `MyArticle.md.yaml` next to your
+- **Metadata lives in the yaml**, not the body. Dir2Site creates `MyArticle.md.yaml` next to your
   file on first scan:
 
   ```yaml

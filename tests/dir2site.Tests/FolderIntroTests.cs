@@ -19,7 +19,7 @@ namespace dir2site.Tests;
 /// <remarks>
 /// The claim worth pinning is that it is <em>not an artifact</em>. Everything that goes wrong here
 /// goes wrong by treating it as one — a card in its own folder, a page at <c>folder/index/</c>, a
-/// sidecar it never asked for, or a published directory that the auto-generate path then moves or
+/// yaml it never asked for, or a published directory that the auto-generate path then moves or
 /// deletes when the file is renamed away.
 /// </remarks>
 public class FolderIntroTests : IDisposable
@@ -202,7 +202,7 @@ public class FolderIntroTests : IDisposable
     /// credit or date, and the scan must not write it a settings file nobody asked for.
     /// </summary>
     [AvaloniaFact]
-    public void NoSidecarIsWrittenForAnIntro()
+    public void NoYamlIsWrittenForAnIntro()
     {
         var folder = MakeFolder("Photographs");
         MakeIntro(folder, "Prose.\n");
@@ -303,11 +303,11 @@ public class FolderIntroTests : IDisposable
     }
 
     /// <summary>
-    /// Renaming an article to index.md turns it into prose, and prose has no sidecar. Carrying the
+    /// Renaming an article to index.md turns it into prose, and prose has no yaml. Carrying the
     /// old one across would create the file this convention promises never exists.
     /// </summary>
     [AvaloniaFact]
-    public void RenamingAnArticleToAnIntroDoesNotCarryItsSidecar()
+    public void RenamingAnArticleToAnIntroDoesNotCarryItsYaml()
     {
         var folder = MakeFolder("Photographs");
         var article = Path.Combine(folder, "Introduction.md");
@@ -319,7 +319,7 @@ public class FolderIntroTests : IDisposable
         ArtifactRename.Apply(article, intro);
 
         Assert.False(File.Exists(intro + ".yaml"));
-        // The old sidecar is left where it is, for the leftovers sweep to offer.
+        // The old yaml is left where it is, for the leftovers sweep to offer.
         Assert.True(File.Exists(article + ".yaml"));
     }
 }

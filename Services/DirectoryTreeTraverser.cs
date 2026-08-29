@@ -105,7 +105,7 @@ public static class DirectoryTraverser
 
                 // The folder's own introduction, not one of its contents: it is rendered at the
                 // top of this folder's page and never becomes a card, a page or an artifact. No
-                // sidecar is written for it either — there is nothing to caption or credit, and a
+                // yaml is written for it either — there is nothing to caption or credit, and a
                 // file that exists to be prose shouldn't grow a settings file nobody asked for.
                 if (IsFolderIntro(file))
                 {
@@ -436,8 +436,8 @@ public static class DirectoryTraverser
         if (IsIgnoredFileName(name))
             return true;
 
-        // Skip metadata sidecar files — they are not content nodes
-        if (IsSidecarName(name))
+        // Skip yaml metadata files — they are not content nodes
+        if (IsYamlName(name))
             return true;
 
         return HasHiddenAttribute(path);
@@ -454,7 +454,7 @@ public static class DirectoryTraverser
     public static bool IsFolderIntro(string path) =>
         Path.GetFileName(path).Equals(FolderIntroName, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The name-only rules a file is ignored by, sidecars aside. See <see cref="IsIgnoredDirectoryName"/>.</summary>
+    /// <summary>The name-only rules a file is ignored by, yaml files aside. See <see cref="IsIgnoredDirectoryName"/>.</summary>
     internal static bool IsIgnoredFileName(string name) =>
         name.StartsWith('.') || PublishIgnore.IsJunkFile(name);
 
@@ -462,7 +462,7 @@ public static class DirectoryTraverser
     /// A metadata file rather than content. The tree walk drops these; the watcher deliberately does
     /// not, because a hand-edited yaml is a change the UI has to show (#62).
     /// </summary>
-    internal static bool IsSidecarName(string name)
+    internal static bool IsYamlName(string name)
     {
         var ext = Path.GetExtension(name);
         return ext.Equals(".yaml", StringComparison.OrdinalIgnoreCase) ||

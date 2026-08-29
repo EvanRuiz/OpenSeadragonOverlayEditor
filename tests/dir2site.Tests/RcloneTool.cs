@@ -168,6 +168,12 @@ public static class RcloneTool
         OperatingSystem.IsLinux() && RuntimeInformation.OSArchitecture == Architecture.X64 ? "linux-amd64" :
         null;
 
+    /// <summary>
+    /// Where the binary is cached. Exposed so <see cref="RcloneOrphans"/> can file its records
+    /// beside it, sharing the same directory's lifetime and ignore rules.
+    /// </summary>
+    internal static string CacheDirectory => CacheRoot();
+
     /// <summary>Repo-local so CI can cache one directory; gitignored so it never gets committed.</summary>
     private static string CacheRoot()
     {

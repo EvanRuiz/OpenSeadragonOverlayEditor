@@ -197,7 +197,7 @@ public sealed class SourceWatcher : IDisposable
             // arrive after the watcher was let go — and the caller disposes when the project
             // changes, having just cleared the lists this batch would be added to. A settle from
             // the previous project then lands in them, and its paths are carried through:
-            // sidecars moved and preview folders deleted in a project nobody has open.
+            // yaml files moved and preview folders deleted in a project nobody has open.
             //
             // Held by ASettleInterruptedByDisposal_DeliversNothing, which reaches the window through
             // SettlingForTests rather than trying to time its way into it. Watching from outside
@@ -247,7 +247,7 @@ public sealed class SourceWatcher : IDisposable
     /// that means "we wrote this ourselves". Judging the leaf alone would have every generate
     /// trigger the next one.
     ///
-    /// Sidecars are the deliberate exception. The walk drops <c>.yaml</c> because it is metadata
+    /// Yaml files are the deliberate exception. The walk drops <c>.yaml</c> because it is metadata
     /// rather than a content node, but a hand-edited yaml is precisely a change the UI has to
     /// reflect (#62), so it is watched. <c>.json</c> is not: nothing in the source tree is meant to
     /// be one, and the app's own are all under <c>.dir2site/</c> and excluded above.

@@ -661,7 +661,7 @@ public static class VsCodeExtensionInstaller
 
                 if (folder == Environment.SpecialFolder.ApplicationData)
                 {
-                    dir = Path.Combine(dir, "dir2site");
+                    dir = AppDataPaths.Root;
                     Directory.CreateDirectory(dir);
                 }
 

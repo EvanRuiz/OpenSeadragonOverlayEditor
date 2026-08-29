@@ -10,7 +10,7 @@ namespace dir2site.Services;
 /// <summary>
 /// Converts Markdown to HTML for the generated static site using Markdig.
 /// YAML front matter (if any) is parsed and dropped — artifact metadata lives in the
-/// sidecar YAML file, not in the body. Raw HTML in the body is passed through.
+/// artifact's yaml file, not in the body. Raw HTML in the body is passed through.
 /// </summary>
 public static partial class MarkdownRenderer
 {

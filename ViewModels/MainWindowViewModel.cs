@@ -639,7 +639,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <remarks>
     /// A batch is always recorded, even when one arrives while a scan or a generate is running. It
     /// used to be dropped, on the grounds that a scan writes yaml itself — <c>EnsureDefaultKeys</c>
-    /// brings sidecars up to the current key set, <c>CreateDefaultYamlMeta</c> writes new ones — and
+    /// brings yaml files up to the current key set, <c>CreateDefaultYamlMeta</c> writes new ones — and
     /// those writes are changes to the folder being watched. That reasoning holds for our writes and
     /// not at all for the user's: a photo dropped in while a generate was running was discarded
     /// outright, never reached <see cref="_changesSinceGenerate"/>, and so was invisible to the next
@@ -654,7 +654,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             if (batch.Witnessed)
             {
-                // Recorded here, acted on at the top of the next pass. Moving a sidecar and a
+                // Recorded here, acted on at the top of the next pass. Moving a yaml and a
                 // preview folder is real filesystem work, and this can arrive at any moment — with a
                 // generate reading those very directories on background threads. The old IsLoading
                 // guard made that impossible by dropping the batch; nothing replaced it when the
@@ -688,7 +688,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Set when a batch lands during a run, so one more follows it.</summary>
     private bool _changesArrivedMidRun;
 
-    /// <summary>Witnessed changes whose sidecars and previews have yet to be moved.</summary>
+    /// <summary>Witnessed changes whose yaml files and previews have yet to be moved.</summary>
     private readonly List<SourceChange> _uncarried = [];
 
     /// <summary>
@@ -1086,19 +1086,19 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Moves each renamed artifact's sidecar, thumbnails and caption along with it.
+    /// Moves each renamed artifact's yaml, thumbnails and caption along with it.
     /// </summary>
     /// <remarks>
-    /// Called at the top of a pass, before the walk — so it finds the sidecar already sitting beside
-    /// its file. Left until after, the scan would see a file with no sidecar, scaffold a fresh one,
+    /// Called at the top of a pass, before the walk — so it finds the yaml already sitting beside
+    /// its file. Left until after, the scan would see a file with no yaml, scaffold a fresh one,
     /// and strand the caption and settings the user wrote in the old one, which is the very thing
     /// this exists to prevent.
     ///
-    /// And not before that, which is the other half. Moving a sidecar and a whole
+    /// And not before that, which is the other half. Moving a yaml and a whole
     /// <c>.dir2site/{stem}/</c> directory is real filesystem work, and doing it the moment a batch
     /// arrives means doing it while a generate may be reading those directories on background
-    /// threads. A lost race there is quiet: <c>MoveSidecar</c> swallows a failed move, so the
-    /// sidecar keeps the old name, the next pass scaffolds a fresh one, and the user's caption turns
+    /// threads. A lost race there is quiet: <c>MoveYaml</c> swallows a failed move, so the
+    /// yaml keeps the old name, the next pass scaffolds a fresh one, and the user's caption turns
     /// up in the leftovers dialog. At the top of a pass nothing else is running.
     ///
     /// Directories are skipped: a folder carries its contents with it, so everything inside is
@@ -1120,7 +1120,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     break;
 
                 // A deletion we watched happen takes its settings and previews with it. Left behind
-                // they are invisible — a hidden folder and a sidecar for a file that isn't there —
+                // they are invisible — a hidden folder and a yaml for a file that isn't there —
                 // so they accumulate quietly for as long as a project is worked on.
                 case SourceChangeKind.Removed:
                     SourceLeftovers.RemoveFor(change.Path);
@@ -1514,7 +1514,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Offers to tidy away sidecars and preview folders whose artifact is no longer in the project.
+    /// Offers to tidy away yaml files and preview folders whose artifact is no longer in the project.
     /// </summary>
     /// <remarks>
     /// Asked rather than done, because nothing here saw the artifact go: these were found by

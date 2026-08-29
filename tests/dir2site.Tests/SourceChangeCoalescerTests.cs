@@ -139,7 +139,7 @@ public class SourceChangeCoalescerTests
     public void AFolderMove_DoesNotAlsoClaimAMoveForEveryFileInside()
     {
         // Some backends report the folder and everything under it. The folder move already says all
-        // of it: the contents went along, and so did their sidecars and previews. Left in, the batch
+        // of it: the contents went along, and so did their yaml files and previews. Left in, the batch
         // would ask for two hundred yaml files to be shuffled between paths that no longer exist.
         var batch = Coalesce([
             new RawSourceEvent(RawChangeKind.Renamed, P("Archive", "1890s"), P("Photos", "1890s")),
@@ -210,7 +210,7 @@ public class SourceChangeCoalescerTests
         // Calling this a removal rather than nothing at all is deliberate. The tempting rule —
         // "created and then deleted inside one burst never really existed" — is wrong on macOS, and
         // the next test is why. Reporting a removal that costs nothing is much the cheaper error: a
-        // file nothing was ever generated from has no page, no sidecar and no previews, so every
+        // file nothing was ever generated from has no page, no yaml and no previews, so every
         // consequence of "removed" is a no-op.
         var batch = Coalesce([
             new RawSourceEvent(RawChangeKind.Created, P("article.md.tmp")),

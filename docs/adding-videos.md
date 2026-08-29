@@ -41,7 +41,7 @@ parent-cover: false
 grandparent-cover: false
 ```
 
-The last few are the settings every artifact has; see [Artifact settings](../README.md#artifact-settings).
+The last few are the settings every artifact has; see [Artifact settings](artifact-settings.md).
 
 Cards carry no outbound link by default — the player already offers YouTube's own. Put text in
 `url-text` (e.g. `View on YouTube`) and the card gains a link to the URL from your `.url` file.

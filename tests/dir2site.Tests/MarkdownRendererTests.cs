@@ -223,7 +223,7 @@ public class MarkdownRendererTests
         Assert.Contains($"href=\"{expected}\"", html);
     }
 
-    // Artifact metadata lives in the sidecar YAML, so front matter in the body is parsed and dropped
+    // Artifact metadata lives in the artifact's yaml, so front matter in the body is parsed and dropped
     // rather than rendered as content.
     [Fact]
     public void YamlFrontMatter_IsNotRendered()

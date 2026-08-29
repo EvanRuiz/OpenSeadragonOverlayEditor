@@ -30,9 +30,7 @@ public sealed class RecentProjectsStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>The real store, e.g. <c>%AppData%/dir2site/ui</c>.</summary>
-    public static RecentProjectsStore Default { get; } = new(Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "dir2site", "ui"));
+    public static RecentProjectsStore Default { get; } = new(AppDataPaths.Area("ui"));
 
     /// <summary>
     /// Windows and macOS reach the same folder through different casings; Linux does not.
