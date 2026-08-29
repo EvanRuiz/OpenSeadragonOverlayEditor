@@ -1119,7 +1119,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     ArtifactRename.Apply(from, change.Path);
                     break;
 
-                // A deletion we watched happen takes its settings and previews with it. Left behind
+                // A deletion we watched happen takes its yaml and previews with it. Left behind
                 // they are invisible — a hidden folder and a yaml for a file that isn't there —
                 // so they accumulate quietly for as long as a project is worked on.
                 case SourceChangeKind.Removed:
@@ -1311,8 +1311,16 @@ public partial class MainWindowViewModel : ViewModelBase
             IReadOnlyList<string> Orphans) result;
         IReadOnlyList<string> explainedByChanges = [];
         IReadOnlyList<string> sourceLeftovers = [];
+        var generatedBefore = true;
         try
         {
+            // Read before the generate below writes it. A folder this app has never generated has no
+            // history to call anything a leftover against, and every judgement it could make would
+            // come from the shape of a filename — the reasoning SourceLeftovers refuses everywhere
+            // else. Someone opening a folder of hand-written metadata, or one holding a site another
+            // tool built, gets told what was found and asked about none of it.
+            generatedBefore = File.Exists(SiteGenerator.GeneratedManifestPath(DirectoryRoot!));
+
             // Re-scan from disk so any YAML edits since last load are picked up
             tracker.Report("Scanning for changes...");
             var updatedYamls = new List<string>();
@@ -1339,11 +1347,27 @@ public partial class MainWindowViewModel : ViewModelBase
             // one, and the user gets asked to confirm deleting content they never deleted.
             explainedByChanges = ApplySourceChanges(freshRoot, tracker);
 
-            // Only worth asking about when nothing witnessed the deletions that would explain them.
-            // With the watcher running these were already taken away as they happened, so a run
-            // that finds any here has been out of the loop for something.
+            // Only worth looking when nothing witnessed the deletions that would explain them. With
+            // the watcher running these were already taken away as they happened, so a run that
+            // finds any here has been out of the loop for something.
+            //
+            // Two halves, and they are treated differently on purpose. The previews and stamps are
+            // ours, so they simply go — before the previews stage below, so that a stem being reused
+            // by a different file starts from nothing. The yamls are the user's captions and credits
+            // and are the one thing worth a dialog.
             if (!_siteIsAccountedFor)
-                sourceLeftovers = await Task.Run(() => SourceLeftovers.FindAll(DirectoryRoot!), cancel);
+            {
+                // Asked before it is swept: the evidence that an artifact was ever ours is the very
+                // previews and stamps the sweep takes, so a yaml looked at afterwards has nothing
+                // backing it and is never named at all rather than named once.
+                sourceLeftovers = await Task.Run(() => SourceLeftovers.FindLeftoverYamls(DirectoryRoot!), cancel);
+
+                // Not on a run with no history: this takes the previews and stamps that are the
+                // evidence a yaml is offered on, so a first run doing it would consume the one ask
+                // it has just promised. A run with no history deletes nothing at all, ours included.
+                if (generatedBefore)
+                    await Task.Run(() => SourceLeftovers.RemoveGeneratedLeftovers(DirectoryRoot!, tracker), cancel);
+            }
 
             // Generate previews first so site settings (PDF resize/quality) affect output
             tracker.Report("Generating previews...");
@@ -1399,10 +1423,25 @@ public partial class MainWindowViewModel : ViewModelBase
         // A run that finds nothing has settled whatever an earlier one was holding.
         PendingSiteOrphans = [];
 
-        if (result.Orphans.Count > 0)
-            await HandleLeftovers(Path.Combine(DirectoryRoot, "_site"), result.Orphans, explainedByChanges);
+        if (!generatedBefore)
+        {
+            // Said, not asked, and not held for a deploy either — a first run has no standing to
+            // propose deleting anything it merely recognised the shape of.
+            var found = result.Orphans.Count + sourceLeftovers.Count;
+            if (found > 0)
+                AppendWarning(found == 1
+                    ? "1 file looks left over, but this folder has not been generated before — " +
+                      "nothing was offered. It will be offered on the next generate."
+                    : $"{found} files look left over, but this folder has not been generated before — " +
+                      "nothing was offered. They will be offered on the next generate.");
+        }
+        else
+        {
+            if (result.Orphans.Count > 0)
+                await HandleLeftovers(Path.Combine(DirectoryRoot, "_site"), result.Orphans, explainedByChanges);
 
-        await OfferSourceLeftovers(sourceLeftovers);
+            await OfferSourceLeftovers(sourceLeftovers);
+        }
 
         StartServerCommand.NotifyCanExecuteChanged();
         QuickSyncCommand.NotifyCanExecuteChanged();
@@ -1472,15 +1511,16 @@ public partial class MainWindowViewModel : ViewModelBase
     /// whether we can say how it got that way.
     /// </summary>
     /// <remarks>
-    /// A page stranded by a change we watched happen is not a question. Deleting one of two photos
-    /// from a folder leaves it holding a single item, which publishes as the folder's own index
-    /// rather than as a card — so the surviving photo's page moves up a level and the old one is
-    /// left behind. Asking about that is asking the user to confirm a consequence of the layout
-    /// rules, phrased as though they had deleted something.
+    /// Much less reaches here than used to. The generate has already taken away every file it can
+    /// show it wrote itself, because <c>_site</c> is output and this app's own stale work is not a
+    /// question — deleting one of two photos leaves the folder holding a single item, which
+    /// publishes as the folder's own index, and asking about the page that move strands is asking
+    /// the user to confirm a consequence of the layout rules as though they had deleted something.
     ///
-    /// Everything else still gets asked about, and that is the point of splitting rather than
-    /// suppressing: <c>_site</c> is not watched, so a file put there by hand or by another tool is
-    /// exactly what we would not have seen, and it is exactly what should be asked about.
+    /// What arrives is what no run has a record of writing: a file put in <c>_site</c> by hand or by
+    /// another tool. <c>_site</c> is not watched, so that is exactly what we would not have seen,
+    /// and exactly what should be asked about. The split below is kept for the narrow case of one of
+    /// those sitting under a path a witnessed change explains.
     /// </remarks>
     private async Task HandleLeftovers(
         string siteRoot, IReadOnlyList<string> orphans, IReadOnlyList<string> explained)
@@ -1523,7 +1563,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// difference the whole feature turns on.
     ///
     /// Its own dialog rather than a section in the _site one. Deleting a published page and deleting
-    /// a hidden settings file are decisions of very different weight, and running them together
+    /// a hidden yaml are decisions of very different weight, and running them together
     /// would make the lighter one carry the alarm of the heavier.
     /// </remarks>
     private async Task OfferSourceLeftovers(IReadOnlyList<string> leftovers)

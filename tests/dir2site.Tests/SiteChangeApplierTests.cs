@@ -225,11 +225,17 @@ public class SiteChangeApplierTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void AnUnwitnessedDelete_IsStillOffered()
+    public void AnUnwitnessedDelete_TakesItsPagesToo()
     {
-        // The other half of the pair above, and the reason the dialog stays. Nothing saw this
-        // happen, so "the site no longer wants these files" is all we know — which is not the same
-        // as knowing the user deleted anything.
+        // This used to be the other half of the pair above: nothing saw the deletion, so the pages
+        // were offered rather than taken, on the reasoning that "the site no longer wants these
+        // files" is not the same as knowing the user deleted anything.
+        //
+        // True, and beside the point. These pages are the generator's own output — it wrote them,
+        // and this run does not want them. Whether anybody watched the source file go says nothing
+        // about that, and asking made the app look unsure of something it knows for certain. What
+        // being unwitnessed still costs is the yaml and the previews in the user's own folders,
+        // which are theirs and go to SourceLeftovers to be asked about.
         var nested = MakeFolder("Photographs");
         MakeArtifact(nested, "Portrait.jpg", "A Portrait");
         MakeArtifact(nested, "Landscape.jpg", "A Landscape");
@@ -241,10 +247,12 @@ public class SiteChangeApplierTests : IDisposable
 
         var result = GenerateUnwitnessed();
 
-        Assert.NotEmpty(result.Orphans);
-        Assert.Contains(result.Orphans, o => o.Contains("Portrait", StringComparison.Ordinal));
-        // Offered, not taken: the page is still there until someone says so.
-        Assert.True(File.Exists(SitePath("Photographs", "Portrait", "index.html")));
+        Assert.Empty(result.Orphans);
+        Assert.False(File.Exists(SitePath("Photographs", "Portrait", "index.html")));
+
+        // And the survivor is still published — as the folder's own index, since Photographs is
+        // down to one item.
+        Assert.True(File.Exists(SitePath("Photographs", "index.html")));
     }
 
     // ---- an unwitnessed move -----------------------------------------------
@@ -271,11 +279,16 @@ public class SiteChangeApplierTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void AnAmbiguousUnwitnessedMove_IsLeftToTheDialog()
+    public void AnAmbiguousUnwitnessedMove_IsRebuiltRatherThanGuessedAt()
     {
         // Two folders called "1890s" leaving and two arriving: nothing here says which went where,
-        // and a wrong pairing publishes pages at addresses the user never chose. Not guessing costs
-        // a rebuild and a question; guessing wrong costs a wrong site.
+        // and a wrong pairing publishes pages at addresses the user never chose. So no pairing is
+        // made — that part is unchanged, and it is still the whole point.
+        //
+        // What has changed is what refusing costs. The old subtrees used to go to the dialog, so an
+        // ambiguous reorganization ended in a question about files the user had not touched. They
+        // are the generator's own pages, so they are simply taken away and written again where the
+        // folders now are. The refusal to guess buys a rebuild, and the rebuild is silent.
         var a = MakeFolder("Photographs", "1890s");
         var b = MakeFolder("Documents", "1890s");
         MakeArtifact(a, "Portrait.jpg", "A Portrait");
@@ -290,7 +303,13 @@ public class SiteChangeApplierTests : IDisposable
 
         var result = GenerateUnwitnessed();
 
-        Assert.NotEmpty(result.Orphans);
+        // Each folder holds one artifact, so it publishes as that folder's own index.
+        Assert.True(File.Exists(SitePath("Archive", "1890s", "index.html")));
+        Assert.True(File.Exists(SitePath("Storage", "1890s", "index.html")));
+
+        Assert.False(Directory.Exists(SitePath("Photographs", "1890s")));
+        Assert.False(Directory.Exists(SitePath("Documents", "1890s")));
+        Assert.Empty(result.Orphans);
     }
 
     // ---- what must never be touched ----------------------------------------

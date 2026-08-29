@@ -39,6 +39,59 @@ public class SourceLeftoversTests : IDisposable
         Directory.CreateDirectory(At(".dir2site", stem));
         File.WriteAllText(At(".dir2site", stem, $"preview-{stem}.webp"), "thumb");
         File.WriteAllText(At(fileName + ".yaml"), $"type: photo\ncaption: {caption}\n");
+        PreviewGenerator.WriteStamp(At(fileName));
+    }
+
+    [Fact]
+    public void AWitnessedDelete_TakesTheSourceStampWithItToo()
+    {
+        // The stamp sits beside the previews folder rather than inside it, so the delete that takes
+        // the folder does not take the stamp with it — it has to be named. Left behind it is inert,
+        // because a preview that isn't there is stale whatever a stamp says, but it is litter for a
+        // file nobody has any more, and litter in a hidden folder is the kind nobody ever clears.
+        MakePhoto("Portrait.jpg", "Aunt Mary, 1912");
+        var stamp = PreviewGenerator.StampPath(At("Portrait.jpg"));
+        Assert.True(File.Exists(stamp));
+
+        File.Delete(At("Portrait.jpg"));
+        SourceLeftovers.RemoveFor(At("Portrait.jpg"));
+
+        Assert.False(File.Exists(stamp));
+        Assert.False(Directory.Exists(At(".dir2site", "Portrait")));
+        Assert.False(File.Exists(At("Portrait.jpg.yaml")));
+    }
+
+    [Fact]
+    public void AStampWhoseArtifactWentWhileNothingWatched_IsSweptToo()
+    {
+        // The stamp is a file directly in .dir2site rather than inside the previews folder, so that
+        // it is not copied into the site and published with them. But this sweep asked the folder
+        // for its subdirectories, and a file is not one — so a stamp left by a deletion nobody
+        // watched could never be found, and nothing watching is the whole reason this sweep exists.
+        // RemoveFor takes it on a deletion we did watch; that half was never the gap.
+        MakePhoto("Portrait.jpg", "Aunt Mary, 1912");
+        var stamp = PreviewGenerator.StampPath(At("Portrait.jpg"));
+        Assert.True(File.Exists(stamp));
+
+        File.Delete(At("Portrait.jpg"));
+
+        // Swept, not offered — it is ours, like the previews folder beside it.
+        Assert.DoesNotContain(stamp, SourceLeftovers.FindLeftoverYamls(_root));
+
+        SourceLeftovers.RemoveGeneratedLeftovers(_root);
+        Assert.False(File.Exists(stamp));
+    }
+
+    [Fact]
+    public void AStampWhoseArtifactIsStillThere_SurvivesTheSweep()
+    {
+        // The other half, and the one that would make this sweep useless if it were wrong: a stamp
+        // belonging to a file that is present describes previews the site is still using.
+        MakePhoto("Portrait.jpg", "Aunt Mary, 1912");
+
+        SourceLeftovers.RemoveGeneratedLeftovers(_root);
+
+        Assert.True(File.Exists(PreviewGenerator.StampPath(At("Portrait.jpg"))));
     }
 
     // ---- what cannot be told apart is not guessed at ------------------------
@@ -131,15 +184,25 @@ public class SourceLeftoversTests : IDisposable
         Directory.CreateDirectory(At("Photographs"));
         File.WriteAllText(At("Photographs", "Letter.jpg"), "jpeg");
         File.WriteAllText(At("Photographs", "Letter.jpg.yaml"), "type: photo\ncaption: A letter\n");
+        // What a generate leaves beside an artifact, which is what makes its yaml a leftover rather
+        // than a file that merely looks like one.
+        Directory.CreateDirectory(At("Photographs", ".dir2site", "Letter"));
 
         File.Delete(At("Portrait.jpg"));
         File.Delete(At("Photographs", "Letter.jpg"));
 
-        var found = SourceLeftovers.FindAll(_root);
+        var found = SourceLeftovers.FindLeftoverYamls(_root);
 
         Assert.Contains(found, f => f.EndsWith("Portrait.jpg.yaml", StringComparison.Ordinal));
         Assert.Contains(found, f => f.EndsWith("Letter.jpg.yaml", StringComparison.Ordinal));
-        Assert.Contains(found, f => Path.GetFileName(f) == "Portrait");
+
+        // The previews folder is no longer among them: it is ours, so it is swept rather than put to
+        // the user. What is asked about is their captions and credits, and only that.
+        Assert.DoesNotContain(found, f => Path.GetFileName(f) == "Portrait");
+
+        Assert.True(Directory.Exists(At(".dir2site", "Portrait")));
+        SourceLeftovers.RemoveGeneratedLeftovers(_root);
+        Assert.False(Directory.Exists(At(".dir2site", "Portrait")));
     }
 
     [Fact]
@@ -148,7 +211,7 @@ public class SourceLeftoversTests : IDisposable
         MakePhoto("Portrait.jpg", "Grandmother");
         MakePhoto("Landscape.jpg", "The valley");
 
-        Assert.Empty(SourceLeftovers.FindAll(_root));
+        Assert.Empty(SourceLeftovers.FindLeftoverYamls(_root));
     }
 
     // ---- taking them away, once we know -------------------------------------

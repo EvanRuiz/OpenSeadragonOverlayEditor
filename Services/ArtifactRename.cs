@@ -41,11 +41,36 @@ public static class ArtifactRename
 
         var yamlPath = MoveYaml(oldPath, newPath);
         MovePreviews(oldPath, newPath);
+        MoveStamp(oldPath, newPath);
 
         if (yamlPath != null)
             RepointYaml(yamlPath, oldPath, newPath);
 
         progress?.Report($"Renamed {Path.GetFileName(oldPath)} → {Path.GetFileName(newPath)}");
+    }
+
+    /// <summary>
+    /// Carries the source stamp, which sits beside the previews folder rather than inside it.
+    /// </summary>
+    /// <remarks>
+    /// Left behind, the renamed file has no stamp and is rebuilt once — harmless but wasteful — and
+    /// the old name keeps one describing previews that have moved out from under it. A rename does
+    /// not touch the artifact's own bytes or timestamp, so the stamp is still true of it; only its
+    /// name has to follow.
+    /// </remarks>
+    private static void MoveStamp(string oldPath, string newPath)
+    {
+        var from = PreviewGenerator.StampPath(oldPath);
+        var to   = PreviewGenerator.StampPath(newPath);
+
+        if (!File.Exists(from) || File.Exists(to)) return;
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+            File.Move(from, to);
+        }
+        catch { /* the artifact simply rebuilds once under its new name */ }
     }
 
     /// <summary>

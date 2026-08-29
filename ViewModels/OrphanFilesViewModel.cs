@@ -93,8 +93,14 @@ public partial class OrphanFilesViewModel : ViewModelBase
     {
         (OrphanKind.Site, 1) => "1 file in your site no longer comes from anything in your folder.",
         (OrphanKind.Site, _) => $"{Items.Count} files in your site no longer come from anything in your folder.",
-        (_, 1) => "1 settings or preview file is left over from something no longer in your folder.",
-        _ => $"{Items.Count} settings and preview files are left over from things no longer in your folder.",
+        // Yamls alone. Previews used to be listed here too, and are now simply taken away — they
+        // are this app's own files, and asking about them put a folder it owns in a list the user
+        // was being asked to approve deleting.
+        //
+        // "yaml", not "settings": the settings are what a yaml holds, and the docs say so — this
+        // list names the files themselves, and every one of them is a yaml.
+        (_, 1) => "1 yaml file is left over from something no longer in your folder.",
+        _ => $"{Items.Count} yaml files are left over from things no longer in your folder.",
     };
 
     [RelayCommand]
