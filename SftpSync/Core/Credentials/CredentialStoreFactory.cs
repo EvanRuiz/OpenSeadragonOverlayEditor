@@ -5,15 +5,15 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 
+using dir2site.Services;
+
 namespace dir2site.SftpSync.Core.Credentials;
 
 /// <summary>Selects the best available credential store for the current OS.</summary>
 public static class CredentialStoreFactory
 {
     /// <summary>Directory backing the file-based stores, e.g. <c>%AppData%/dir2site/credentials</c>.</summary>
-    public static string CredentialsDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "dir2site", "credentials");
+    public static string CredentialsDir { get; } = AppDataPaths.Area("credentials");
 
     // AsyncLocal rather than a plain static, matching SourceListing: xunit runs test classes in
     // parallel, and a plain static would leak a substituted store into an unrelated run — or need

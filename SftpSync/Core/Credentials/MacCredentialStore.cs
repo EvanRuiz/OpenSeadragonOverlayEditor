@@ -5,13 +5,15 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using dir2site.Services;
+
 namespace dir2site.SftpSync.Core.Credentials;
 
 /// <summary>macOS credential store backed by the login Keychain via the <c>security</c> CLI.</summary>
 [SupportedOSPlatform("macos")]
 public sealed partial class MacCredentialStore : ICredentialStore
 {
-    private const string Service = "dir2site";
+    private static readonly string Service = AppDataPaths.CredentialService;
 
     public bool IsSecure => true;
 
