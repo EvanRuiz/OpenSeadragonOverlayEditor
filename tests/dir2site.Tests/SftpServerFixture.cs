@@ -102,7 +102,12 @@ public sealed class SftpServerFixture : IDisposable
                 ServedRoot,
             }) psi.ArgumentList.Add(a);
 
+            // A run that was killed rather than disposed left its server running; clear those out
+            // before adding one more to the pile.
+            RcloneOrphans.SweepOnce();
+
             _server = Process.Start(psi);
+            if (_server != null) RcloneOrphans.Remember(_server.Id);
 
             if (!WaitForPort(Port, TimeSpan.FromSeconds(15)))
             {
@@ -211,9 +216,21 @@ public sealed class SftpServerFixture : IDisposable
 
     public void Dispose()
     {
+        var pid = TryGetServerId();
+
         try { if (_server is { HasExited: false }) _server.Kill(entireProcessTree: true); } catch { }
         try { _server?.Dispose(); } catch { }
+
+        // Only after it is actually down: a record dropped while the process still ran would leave
+        // nothing to find it by if this dispose is the one that fails.
+        if (pid is not null) RcloneOrphans.Forget(pid.Value);
+
         try { Directory.Delete(BaseDir, recursive: true); } catch { }
+    }
+
+    private int? TryGetServerId()
+    {
+        try { return _server?.Id; } catch { return null; }
     }
 
     // ---- helpers -----------------------------------------------------------
