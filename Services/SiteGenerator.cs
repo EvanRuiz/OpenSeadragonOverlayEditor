@@ -71,7 +71,7 @@ public static class SiteGenerator
         // Only ever read to build the menu — page generation walks each node's own children — so the
         // '--' folders are dropped here rather than filtered again on every page.
         var menuFolders = rootItem.Children
-            .Where(c => c.IsDirectory && !IsUnlisted(c))
+            .Where(c => c.IsDirectory && !IsUnlisted(c) && HasPublishableContent(c))
             .OrderBy(c => IsMenuOnly(c) ? 1 : 0)
             .ToList();
 
@@ -95,6 +95,7 @@ public static class SiteGenerator
 
         ReportYamlNotes(rootItem, errors, warnings);
         tracker.SetPageTotal(CountPages(rootItem));
+        KeepUnreadableArtifactPages(rootItem, directoryRoot, siteRoot, ledger);
         var homePromotions = CollectHomePromotions(rootItem, directoryRoot);
         var footerColumns = BuildFooterColumns(config, directoryRoot, rootItem, warnings);
         GeneratePage(rootItem, siteRoot, directoryRoot, config, menuFolders, 0,
@@ -190,7 +191,9 @@ public static class SiteGenerator
         var count = 1;
         foreach (var child in node.Children)
         {
-            if (child.IsDirectory) count += CountPages(child);
+            // The same folders GeneratePage will walk into. A count that included the ones it skips
+            // would leave the progress bar short of its total for the whole run.
+            if (child.IsDirectory) count += HasPublishableContent(child) ? CountPages(child) : 0;
             else if (child.Artifact != null && child.Artifact.Type != ArtifactType.Video) count++;
         }
         return count;
@@ -265,12 +268,18 @@ public static class SiteGenerator
         //
         // Render is a local function because its body needs every local declared above it; lifting
         // it out properly would mean threading fifteen arguments through.
-        if (scope.ShouldRender(siteRoot, indexHtmlPath)) Render();
+        // Nothing to draw, and something already drawn: leave it. A folder reaches this having
+        // passed HasPublishableContent, so an empty one never gets here at all — this is the folder
+        // whose artifacts would not parse, where rendering means replacing the last good page with
+        // an empty one rather than filling a gap.
+        var nothingToDraw = node.UnreadableArtifacts.Count > 0 && !HasRenderableContent(node);
+
+        if (!nothingToDraw && scope.ShouldRender(siteRoot, indexHtmlPath)) Render();
         else tracker.PageDone(Change.None);
 
         ReportPublicNameCollisions(node, warnings);
 
-        foreach (var child in node.Children.Where(c => c.IsDirectory))
+        foreach (var child in node.Children.Where(c => c.IsDirectory && HasPublishableContent(c)))
         {
             var childOutputDir = Path.Combine(outputDir, PublicName(child.Name));
             GeneratePage(child, childOutputDir, directoryRoot, config, menuFolders,
@@ -347,7 +356,7 @@ public static class SiteGenerator
             var breadcrumbs = BuildBreadcrumbs(prefix, depth, ancestorNames, PublicName(node.Name));
 
             var items = node.Children
-                .Where(child => !IsMenuOnly(child))
+                .Where(child => !IsMenuOnly(child) && HasPublishableContent(child))
                 // childAncestors is the chain this page's children live under — the same list their own
                 // pages take their breadcrumbs from, so a card's title and the page it opens agree.
                 .Select(child => (object)BuildCardModel(
@@ -627,7 +636,13 @@ public static class SiteGenerator
     /// </summary>
     private static string ItemCountBadge(DirectoryTreeItem folder)
     {
-        var count = folder.Children.Count(c => !IsMenuOnly(c));
+        var count = folder.Children.Count(c => !IsMenuOnly(c) && HasPublishableContent(c));
+
+        // A folder with no cards still reaches here when it has an introduction, which is content
+        // and gets a card of its own accordingly. "0 items" would be true of the cards and wrong
+        // about the folder, so it says nothing at all and the template leaves the badge off.
+        if (count == 0) return string.Empty;
+
         return count == 1 ? "1 item" : $"{count} items";
     }
 
@@ -763,6 +778,59 @@ public static class SiteGenerator
     }
 
     /// <summary>
+    /// Claims the pages already published for artifacts whose yaml would not parse this run.
+    /// </summary>
+    /// <remarks>
+    /// A file that failed to parse is dropped from the tree, so nothing renders it and nothing keeps
+    /// it — and the sweep then takes the pages a previous run wrote for it, silently, because they
+    /// are the generator's own output and unclaimed. The artifact is sitting right there and its
+    /// pages come off the site over a typo.
+    ///
+    /// So the run claims what it already published for that one artifact and carries on. It is not
+    /// blind here — it read the directory, it has the filename, it knows which file failed and says
+    /// so — and the response is scoped to that knowledge. The first attempt at this reached for
+    /// <c>MarkIncomplete</c>, which switches the sweep off for the entire project, on the reasoning
+    /// that not deleting is the safe direction. It is not, and the two directions are not
+    /// symmetrical: <c>_site</c> is output, so deleting too much is rewritten by the next run, while
+    /// leaving too much means a page the user took down stays at its public address on the next
+    /// deploy — over an unrelated typo, in a different folder, with nothing connecting the two.
+    /// </remarks>
+    private static void KeepUnreadableArtifactPages(
+        DirectoryTreeItem node, string directoryRoot, string siteRoot, SiteLedger ledger)
+    {
+        if (node.UnreadableArtifacts.Count > 0)
+        {
+            var folderRel = Path.GetRelativePath(directoryRoot, node.FullPath);
+            var folder = folderRel is "." ? siteRoot : Path.Combine(siteRoot, PublicRelativePath(folderRel));
+
+            // Where an artifact's pages are depends on how many the folder had, which is the rule
+            // SoleArtifact states: a folder holding one publishes as that one, at the folder's own
+            // address, with no directory of its own anywhere. Reconstructing {folder}/{stem}/ found
+            // nothing there, read the miss as "never published", and claimed nothing — while the
+            // folder went on to render empty over the very page it should have been protecting.
+            //
+            // With nothing left to draw, the honest claim is the folder as it stands: that is the
+            // last version built when the artifacts could still be read, and this run has nothing
+            // better to offer.
+            var whole = !HasRenderableContent(node);
+
+            foreach (var published in whole
+                ? [folder]
+                : node.UnreadableArtifacts.Select(f => Path.Combine(folder, Path.GetFileNameWithoutExtension(f))))
+            {
+                try
+                {
+                    foreach (var kept in SourceListing.FilesRecursive(published)) ledger.Keep(kept);
+                }
+                catch (DirectoryNotFoundException) { /* never published; nothing to hold on to */ }
+                catch { ledger.MarkIncomplete(); }
+            }
+        }
+
+        foreach (var child in node.Children) KeepUnreadableArtifactPages(child, directoryRoot, siteRoot, ledger);
+    }
+
+    /// <summary>
     /// Warns when two siblings publish to the same place. A folder's markers are stripped from its
     /// published name, so "Newspapers+" and a plain "Newspapers" beside it both become
     /// /Newspapers/; and an artifact publishes under its stem, so "Foo.jpg" lands on a sibling
@@ -805,6 +873,46 @@ public static class SiteGenerator
 
     private static bool IsHomePromoted(DirectoryTreeItem item) =>
         item.IsDirectory && item.Name.Length > 1 && item.Name[^1] == HomePromotedSuffix;
+
+    /// <summary>
+    /// Whether a folder has anything for the site to show — in it, or anywhere beneath it.
+    /// </summary>
+    /// <remarks>
+    /// The other three questions on this page are about a folder's name. This one is about what is
+    /// in it, and it is asked wherever a folder is about to be published: as a card, as a menu
+    /// entry, as a promotion to the home page, and as a page of its own. Nothing used to ask it, so
+    /// emptying a folder in Finder — which leaves the hidden <c>.dir2site</c> behind, and so leaves
+    /// the folder — published a card reading "0 items" and an empty page under it.
+    ///
+    /// "Anything" is deliberately broad. An <c>index.md</c> counts, because it is prose the folder's
+    /// page renders and it is deliberately not one of the folder's children — a count would call
+    /// such a folder empty and it plainly isn't. A menu-only child counts, because it has a page and
+    /// the menu leads to it. And the question recurses, because a folder whose own children are all
+    /// folders is the ordinary way to organise a site.
+    /// </remarks>
+    private static bool HasPublishableContent(DirectoryTreeItem item) =>
+        (item.IsDirectory && item.UnreadableArtifacts.Count > 0) || HasRenderableContent(item);
+
+    /// <summary>
+    /// Whether a folder holds anything this run could actually put on a page.
+    /// </summary>
+    /// <remarks>
+    /// The narrower half of the question above, and the two come apart for exactly one folder: one
+    /// whose artifacts this run could not read. It is not empty — that is the whole point of the
+    /// other clause — but there is nothing to draw, and drawing it anyway produces an empty
+    /// collection page. Where the folder published as its single artifact, that page goes over the
+    /// artifact's own, so a typo replaced a photograph with a blank page.
+    /// </remarks>
+    private static bool HasRenderableContent(DirectoryTreeItem item)
+    {
+        if (!item.IsDirectory) return true;
+        if (item.IntroPath != null) return true;
+
+        foreach (var child in item.Children)
+            if (HasPublishableContent(child)) return true;
+
+        return false;
+    }
 
     /// <summary>
     /// The markers instruct the generator; they are not part of the name. None appears in a menu
@@ -931,7 +1039,7 @@ public static class SiteGenerator
         {
             if (child.IsDirectory)
             {
-                if (IsHomePromoted(child))
+                if (IsHomePromoted(child) && HasPublishableContent(child))
                     promoted.Add(new HomePromotion(child, FolderHref(child, directoryRoot), childAncestors));
                 CollectHomePromotions(child, childAncestors, directoryRoot, promoted);
             }

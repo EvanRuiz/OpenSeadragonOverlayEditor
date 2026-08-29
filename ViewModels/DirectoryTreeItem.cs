@@ -67,6 +67,16 @@ public partial class DirectoryTreeItem : ObservableObject
     public List<string> YamlWarnings { get; } = new();
 
     /// <summary>
+    /// Files in this folder whose yaml would not parse, so they are not among <see cref="Children"/>.
+    /// </summary>
+    /// <remarks>
+    /// Kept as paths rather than as a count, because what the generator needs is which artifact —
+    /// it leaves that one's published pages alone and carries on with everything else. A file that
+    /// failed to parse is not a file that went away, and the difference is the whole of it.
+    /// </remarks>
+    public List<string> UnreadableArtifacts { get; } = new();
+
+    /// <summary>
     /// Both, as one line each for the tree to show. Filled in while the tree is built, before
     /// anything binds to them, so they need no change notification.
     /// </summary>

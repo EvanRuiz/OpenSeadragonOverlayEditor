@@ -147,7 +147,10 @@ public class GenerateProgressTests : IDisposable
         var nested = MakeFolder("Photographs", "1890s");
         MakeArtifactWithPreviews(nested, "Portrait.jpg", "A Portrait");
         MakeArtifactWithPreviews(nested, "Landscape.jpg", "A Landscape");
-        MakeFolder("Documents");
+        // Documents holds one artifact, so it publishes as that folder's own index — one page, the
+        // same as the empty folder that used to stand here before an empty one stopped being
+        // published at all.
+        MakeArtifactWithPreviews(MakeFolder("Documents"), "Letter.jpg", "A Letter");
 
         var pages = Generate().Pages;
 

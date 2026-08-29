@@ -131,7 +131,17 @@ public static class DirectoryTraverser
 
                 // Only surface files that have a parsed artifact — others are not yet catalogued
                 if (artifact == null)
+                {
+                    // The node is dropped and its errors would go with it, so the folder keeps them.
+                    // Nothing else ever read them: a yaml that stopped parsing was silent in the
+                    // error pane, and the folder holding it looked to the generator like one the
+                    // user had emptied — no page, and the pages a previous run wrote taken away
+                    // without a word, while the artifact sat there the whole time.
+                    node.YamlErrors.AddRange(child.YamlErrors);
+                    node.YamlWarnings.AddRange(child.YamlWarnings);
+                    node.UnreadableArtifacts.Add(file);
                     continue;
+                }
 
                 child.Artifact = artifact;
                 allArtifacts.Add(file);

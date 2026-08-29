@@ -123,13 +123,13 @@ public class SiteGeneratorTests : IDisposable
         // A second artifact keeps 1890s a collection: a folder holding one is published as that
         // artifact, and these tests are about the menu and staleness, not about that.
         MakeArtifact(nested, "Landscape.jpg", "A Landscape");
-        MakeFolder("Documents");
+        MakeArtifact(MakeFolder("Documents"), "Letter.jpg", "A Letter");
 
         Generate(Config());
         Assert.DoesNotContain("Maps/", ReadPage("Photographs", "1890s"));
 
         // Nothing under Photographs/1890s is touched, so the old mtime check kept its stale menu.
-        MakeFolder("Maps");
+        MakeArtifact(MakeFolder("Maps"), "Ordnance.jpg", "An Ordnance Survey");
         Generate(Config());
 
         Assert.Contains("Maps/", ReadPage("Photographs", "1890s"));
@@ -231,7 +231,10 @@ public class SiteGeneratorTests : IDisposable
     [AvaloniaFact]
     public void OnlyThePagesThatChanged_GetRewritten()
     {
-        MakeFolder("Photographs", "1890s");
+        var decade = MakeFolder("Photographs", "1890s");
+        // One to begin with, so 1890s has a page whose mtime can be compared; the second below is
+        // the change under test.
+        MakeArtifact(decade, "Landscape.jpg", "A Landscape");
         var documents = MakeFolder("Documents");
         MakeArtifact(documents, "Letter.jpg", "A Letter");
         // Keeps Documents a collection, so Letter has a page of its own whose mtime can be compared.
@@ -240,7 +243,7 @@ public class SiteGeneratorTests : IDisposable
         Generate(Config());
         var before = PageMtimes();
 
-        MakeArtifact(Path.Combine(_root, "Photographs", "1890s"), "Portrait.jpg", "A Portrait");
+        MakeArtifact(decade, "Portrait.jpg", "A Portrait");
         Generate(Config());
         var after = PageMtimes();
 
@@ -353,6 +356,12 @@ public class SiteGeneratorTests : IDisposable
         var nested = MakeFolder("Photographs", "1890s");
         MakeArtifact(nested, "Portrait.jpg", "A Portrait");
         MakeArtifact(nested, "Landscape.jpg", "A Landscape");
+        // A sibling decade, so deleting 1890s leaves Photographs with something in it. A folder left
+        // with nothing to publish is no longer published at all, and this test is about a deletion
+        // taking its own pages and no others — EmptyFolderTests is where the other rule lives.
+        var other = MakeFolder("Photographs", "1900s");
+        MakeArtifact(other, "Street.jpg", "A Street");
+        MakeArtifact(other, "Bridge.jpg", "A Bridge");
         var documents = MakeFolder("Documents");
         MakeArtifact(documents, "Letter.jpg", "A Letter");
         MakeArtifact(documents, "Memo.jpg", "A Memo");
@@ -368,6 +377,7 @@ public class SiteGeneratorTests : IDisposable
 
         // And nothing else does. A sweep that took the site with it would pass the check above.
         Assert.True(File.Exists(SitePath("Photographs", "index.html")));
+        Assert.True(File.Exists(SitePath("Photographs", "1900s", "index.html")));
         Assert.True(File.Exists(SitePath("Documents", "index.html")));
         Assert.True(File.Exists(SitePath("Documents", "Letter", "index.html")));
         Assert.True(File.Exists(SitePath("index.html")));
@@ -765,7 +775,12 @@ public class SiteGeneratorTests : IDisposable
         var nested = MakeFolder("Photographs", "1890s");
         MakeArtifact(nested, "Portrait.jpg", "A Portrait");
         MakeArtifact(nested, "Landscape.jpg", "A Landscape");
-        MakeFolder("Documents");
+        // As above: a sibling keeps Photographs from being emptied by the deletion, so this stays a
+        // test about what a deleted folder takes with it.
+        var other = MakeFolder("Photographs", "1900s");
+        MakeArtifact(other, "Street.jpg", "A Street");
+        MakeArtifact(other, "Bridge.jpg", "A Bridge");
+        MakeArtifact(MakeFolder("Documents"), "Letter.jpg", "A Letter");
 
         Generate(Config());
         // Stands in for what the last deploy left on the server.

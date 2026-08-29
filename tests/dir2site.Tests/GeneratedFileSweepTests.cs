@@ -54,6 +54,14 @@ public class GeneratedFileSweepTests : IDisposable
             $"type: photo\ncaption: {caption}\n");
     }
 
+    private static void MakeVideo(string folder, string fileName, string caption)
+    {
+        File.WriteAllText(Path.Combine(folder, fileName),
+            "[InternetShortcut]\nURL=https://www.youtube.com/watch?v=dQw4w9WgXcQ\n");
+        File.WriteAllText(Path.Combine(folder, fileName + ".yaml"),
+            $"type: video\ncaption: {caption}\nprovider: youtube\nvideoId: dQw4w9WgXcQ\n");
+    }
+
     private static Dir2SiteModel Config() => new()
     {
         Title = "My Site",
@@ -190,6 +198,189 @@ public class GeneratedFileSweepTests : IDisposable
         Assert.Empty(orphans);
         Assert.True(File.Exists(SitePath("Photographs", "Portrait", "index.html")));
         Assert.True(File.Exists(SitePath("Documents", "Letter", "index.html")));
+    }
+
+    // ---- when it cannot say ------------------------------------------------
+
+    [AvaloniaFact]
+    public void ATypoInOneFolder_DoesNotKeepADeletionInAnotherFromTakingEffect()
+    {
+        // The first fix for the test below switched the whole sweep off whenever any yaml anywhere
+        // failed to parse, on the reasoning that not deleting is the safe direction. It is not — not
+        // for _site, which is output. The two directions are not symmetrical: deleting too much here
+        // is rewritten by the next run, while leaving too much means a page the user took down is
+        // still in _site, so the next deploy keeps it at its public address. Over a typo. In a
+        // different folder. With nothing to connect the two.
+        MakeProject();
+        Generate();
+
+        // A take-down, deliberately made.
+        File.Delete(At("Photographs", "Portrait.jpg"));
+        File.Delete(At("Photographs", "Portrait.jpg.yaml"));
+
+        // And, unrelatedly, a typo somewhere else entirely.
+        File.WriteAllText(At("Documents", "Memo.jpg.yaml"), "caption: [unclosed\n");
+
+        var result = Generate();
+
+        Assert.False(File.Exists(SitePath("Photographs", "Portrait", "index.html")),
+            "a page the user deleted stayed published because of a typo in another folder");
+        Assert.Empty(result.Orphans);
+
+        // The typo's own artifact keeps what it had, which is the other half of the rule.
+        Assert.True(File.Exists(SitePath("Documents", "Memo", "index.html")));
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [AvaloniaFact]
+    public void AFolderWhoseYamlStoppedParsing_KeepsItsPages()
+    {
+        // A file whose yaml does not parse is dropped from the tree, so a folder holding only that
+        // file has no children and reads as one the user emptied — no page generated, nothing kept,
+        // and the pages a previous run wrote are in the record, so they went without a word. The
+        // artifact is sitting right there and its folder disappeared off the site.
+        //
+        // "We could not understand this" is the same kind of answer as "we could not read this", and
+        // it belongs to the same guard: a run that did not see the whole project may not act on what
+        // looks missing.
+        MakeProject();
+        Generate();
+
+        File.WriteAllText(At("Photographs", "Portrait.jpg.yaml"), "caption: [unclosed\n");
+
+        var result = Generate();
+
+        Assert.True(File.Exists(SitePath("Photographs", "Portrait", "index.html")),
+            "a page was deleted because a yaml stopped parsing");
+        Assert.Empty(result.Orphans);
+        Assert.NotEmpty(result.Errors);
+
+        // The folder keeps its own page too: one file we could not read is not an empty folder.
+        Assert.True(File.Exists(SitePath("Photographs", "index.html")));
+
+        // And it comes back to itself once the yaml does parse again.
+        File.WriteAllText(At("Photographs", "Portrait.jpg.yaml"), "type: photo\ncaption: A Portrait\n");
+        Assert.Empty(Generate().Errors);
+    }
+
+    // A superseded file whose delete fails — a file held open by an indexer or the preview server,
+    // which is ordinary on Windows — stays recorded as ours, so the next run tries again instead of
+    // asking the user about a page it wrote itself. Verified once by taking write off the directory
+    // and watching it: the delete is reported as an error, nothing is offered, and the path is still
+    // in the record on the run after. Not kept as a test, because the only portable way to make a
+    // delete fail is File.SetUnixFileMode, which throws on the Windows half of the CI matrix — and
+    // this suite does not branch on which platform it is running on. See SourceWatcherTests for the
+    // same call made about a race that cannot be caused without a seam.
+
+    /// <summary>
+    /// Where an artifact's pages end up, which is not one shape. A folder holding one artifact
+    /// publishes as that artifact at the folder's own address, with no directory of its own — the
+    /// rule <c>SoleArtifact</c> states, and the one a reconstruction from a source path will get
+    /// wrong if it does not ask.
+    /// </summary>
+    public static TheoryData<string> Layouts() => new()
+    {
+        "the folder's only artifact",
+        "one of several in a folder",
+        "an artifact at the project root",
+        "the only artifact in a marker folder",
+        "an artifact beside a subfolder",
+        "a sole artifact in a folder with an introduction",
+        "a folder whose only artifact is a video",
+    };
+
+    [AvaloniaTheory]
+    [MemberData(nameof(Layouts))]
+    public void AYamlThatStoppedParsing_NeverBlanksWhatWasPublishedForIt(string layout)
+    {
+        // The first attempt at scoping this rebuilt the artifact's address as {folder}/{stem}/, which
+        // is right for a collection and wrong for a folder holding one — there is no {stem}/ there at
+        // all. Nothing was found, the miss read as "never published", nothing was claimed — and the
+        // folder, now counted as non-empty because of the unreadable file, rendered an empty
+        // collection page straight over the photograph's own page. A typo turned a published
+        // photograph into a blank page.
+        //
+        // Which layout the artifact was in should not come into it, so this asks all of them.
+        var (yaml, page) = MakeLayout(layout);
+
+        Generate();
+        Assert.Contains("The Subject", File.ReadAllText(page));
+
+        File.WriteAllText(yaml, "type: photo\ncaption: [unclosed\n");
+        var result = Generate();
+
+        Assert.True(File.Exists(page), $"the published page went, for {layout}");
+        Assert.Contains("The Subject", File.ReadAllText(page));
+        Assert.NotEmpty(result.Errors);
+        Assert.Empty(result.Orphans);
+    }
+
+    /// <summary>Builds one of the layouts, and says which yaml to break and which page must survive.</summary>
+    private (string Yaml, string Page) MakeLayout(string layout)
+    {
+        // A second folder throughout, so the project is never reduced to the folder under test.
+        MakePhoto(MakeFolder("Elsewhere"), "Letter.jpg", "A Letter");
+        MakePhoto(At("Elsewhere"), "Memo.jpg", "A Memo");
+
+        switch (layout)
+        {
+            case "one of several in a folder":
+                MakePhoto(MakeFolder("Photographs"), "Portrait.jpg", "The Subject");
+                MakePhoto(At("Photographs"), "Landscape.jpg", "A Landscape");
+                return (At("Photographs", "Portrait.jpg.yaml"), SitePath("Photographs", "Portrait", "index.html"));
+
+            case "an artifact at the project root":
+                MakePhoto(_root, "Cover.jpg", "The Subject");
+                return (At("Cover.jpg.yaml"), SitePath("Cover", "index.html"));
+
+            case "the only artifact in a marker folder":
+                MakePhoto(MakeFolder("-About"), "Team.jpg", "The Subject");
+                return (At("-About", "Team.jpg.yaml"), SitePath("About", "index.html"));
+
+            case "an artifact beside a subfolder":
+                MakePhoto(MakeFolder("Photographs"), "Portrait.jpg", "The Subject");
+                MakePhoto(MakeFolder("Photographs", "1890s"), "Old.jpg", "An Old One");
+                MakePhoto(At("Photographs", "1890s"), "Older.jpg", "An Older One");
+                return (At("Photographs", "Portrait.jpg.yaml"), SitePath("Photographs", "Portrait", "index.html"));
+
+            case "a sole artifact in a folder with an introduction":
+                // An introduction pulls the two rules apart: it stops SoleArtifact collapsing the
+                // folder, so the artifact keeps a page of its own, while also making the folder
+                // renderable — so it is drawn, and the {stem} address is the one to protect.
+                MakePhoto(MakeFolder("Photographs"), "Portrait.jpg", "The Subject");
+                File.WriteAllText(At("Photographs", "index.md"), "# What this collection is\n");
+                return (At("Photographs", "Portrait.jpg.yaml"), SitePath("Photographs", "Portrait", "index.html"));
+
+            case "a folder whose only artifact is a video":
+                // A video plays on its folder's page and never gets one of its own, so SoleArtifact
+                // declines to collapse and the folder publishes as a collection carrying the card.
+                MakeVideo(MakeFolder("Clips"), "Talk.url", "The Subject");
+                return (At("Clips", "Talk.url.yaml"), SitePath("Clips", "index.html"));
+
+            default:
+                // A folder holding one artifact publishes as that artifact, at the folder's address.
+                MakePhoto(MakeFolder("Photographs"), "Portrait.jpg", "The Subject");
+                return (At("Photographs", "Portrait.jpg.yaml"), SitePath("Photographs", "index.html"));
+        }
+    }
+
+    [AvaloniaFact]
+    public void AFolderWhoseOnlyArtifactStoppedParsing_IsNotRenderedOverEmpty()
+    {
+        // The other half of the case above, stated on its own because it is the mechanism rather
+        // than the symptom: a folder with nothing left to draw is not a folder to draw empty.
+        MakePhoto(MakeFolder("Photographs"), "Portrait.jpg", "The Subject");
+        MakePhoto(MakeFolder("Elsewhere"), "Letter.jpg", "A Letter");
+        MakePhoto(At("Elsewhere"), "Memo.jpg", "A Memo");
+        Generate();
+
+        var page = SitePath("Photographs", "index.html");
+        var before = File.ReadAllBytes(page);
+
+        File.WriteAllText(At("Photographs", "Portrait.jpg.yaml"), "type: photo\ncaption: [unclosed\n");
+        Generate();
+
+        Assert.Equal(before, File.ReadAllBytes(page));
     }
 
     // ---- the record itself --------------------------------------------------

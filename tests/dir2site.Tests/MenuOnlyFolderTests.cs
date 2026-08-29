@@ -42,6 +42,14 @@ public class MenuOnlyFolderTests : IDisposable
         return path;
     }
 
+    /// <summary>
+    /// A folder's introduction. What a marker folder actually holds — nobody writes an About
+    /// section with nothing in it — and, since a folder with nothing to publish is no longer given a
+    /// card, a menu entry or a page, what these tests need in one to have anything to assert about.
+    /// </summary>
+    private static void MakeIntro(string folder, string text = "Prose.\n") =>
+        File.WriteAllText(Path.Combine(folder, "index.md"), text);
+
     private void MakeArtifact(string folder, string fileName, string caption)
     {
         var stem = Path.GetFileNameWithoutExtension(fileName);
@@ -69,8 +77,8 @@ public class MenuOnlyFolderTests : IDisposable
     [AvaloniaFact]
     public void ItGetsAPageAtTheNameWithoutTheMarker()
     {
-        MakeFolder("-About");
-        MakeFolder("Photographs");
+        MakeIntro(MakeFolder("-About"));
+        MakeArtifact(MakeFolder("Photographs"), "Portrait.jpg", "A Portrait");
 
         Generate();
 
@@ -81,7 +89,7 @@ public class MenuOnlyFolderTests : IDisposable
     [AvaloniaFact]
     public void ItIsInTheMenuButNotOnTheHomePage()
     {
-        MakeFolder("-About");
+        MakeIntro(MakeFolder("-About"));
         var photos = MakeFolder("Photographs");
         MakeArtifact(photos, "Portrait.jpg", "A Portrait");
 
@@ -101,9 +109,9 @@ public class MenuOnlyFolderTests : IDisposable
     {
         // Created in an order where plain alphabetical sorting would put the marked folder first,
         // since '-' sorts ahead of letters.
-        MakeFolder("-About");
-        MakeFolder("Photographs");
-        MakeFolder("Zoology");
+        MakeIntro(MakeFolder("-About"));
+        MakeArtifact(MakeFolder("Photographs"), "Portrait.jpg", "A Portrait");
+        MakeArtifact(MakeFolder("Zoology"), "Beetle.jpg", "A Beetle");
 
         Generate();
         var home = ReadPage();
@@ -120,6 +128,7 @@ public class MenuOnlyFolderTests : IDisposable
     public void TheMarkerNeverReachesTheVisitor()
     {
         var about = MakeFolder("-About");
+        MakeIntro(about);
         MakeArtifact(about, "Team.jpg", "The Team");
 
         Generate();
@@ -132,6 +141,7 @@ public class MenuOnlyFolderTests : IDisposable
     public void ItsOwnPageAndArtifactsStillWork()
     {
         var about = MakeFolder("-About");
+        MakeIntro(about);
         MakeArtifact(about, "Team.jpg", "The Team");
         // Two, so the folder stays a collection — one artifact on its own is published as the
         // folder's index instead, which SingleItemFolderTests covers.
@@ -152,6 +162,7 @@ public class MenuOnlyFolderTests : IDisposable
         // The thumbnail src is built from the source path, so a marked folder is where page and
         // asset paths would most easily drift apart.
         var about = MakeFolder("-About");
+        MakeIntro(about);
         MakeArtifact(about, "Team.jpg", "The Team");
         MakeArtifact(about, "Office.jpg", "The Office");
         var previewDir = Path.Combine(about, ".dir2site", "Team");
@@ -168,7 +179,7 @@ public class MenuOnlyFolderTests : IDisposable
     public void ASingleDashFolderIsLeftAlone()
     {
         // The marker needs a name after it; a folder called "-" is just an oddly named folder.
-        MakeFolder("-");
+        MakeIntro(MakeFolder("-"));
 
         Generate();
 
@@ -180,7 +191,7 @@ public class MenuOnlyFolderTests : IDisposable
     {
         var photos = MakeFolder("Photographs");
         MakeArtifact(photos, "Cover.jpg", "Cover");
-        MakeFolder("Photographs", "-Credits");
+        MakeIntro(MakeFolder("Photographs", "-Credits"));
 
         Generate();
 
@@ -194,7 +205,7 @@ public class MenuOnlyFolderTests : IDisposable
     [AvaloniaFact]
     public void ADoubleMarkerKeepsThePageOutOfTheMenuAsWellAsTheCards()
     {
-        MakeFolder("--Footer");
+        MakeIntro(MakeFolder("--Footer"));
         var photos = MakeFolder("Photographs");
         MakeArtifact(photos, "Portrait.jpg", "A Portrait");
 
@@ -212,6 +223,7 @@ public class MenuOnlyFolderTests : IDisposable
     public void ADoubleMarkerLosesBothDashesFromItsAddress()
     {
         var footer = MakeFolder("--Footer");
+        MakeIntro(footer);
         MakeArtifact(footer, "Privacy.jpg", "Privacy");
         MakeArtifact(footer, "Use.jpg", "Use and Conditions");
 
@@ -229,8 +241,8 @@ public class MenuOnlyFolderTests : IDisposable
     [AvaloniaFact]
     public void ASingleDashFolderStillReachesTheMenu()
     {
-        MakeFolder("-About");
-        MakeFolder("--Footer");
+        MakeIntro(MakeFolder("-About"));
+        MakeIntro(MakeFolder("--Footer"));
 
         Generate();
         var home = ReadPage();
@@ -244,7 +256,7 @@ public class MenuOnlyFolderTests : IDisposable
     {
         // Every marker needs a name after it, so a folder called "--" is left alone exactly as "-"
         // and "+" are — published at "--", and an ordinary folder rather than a marked one.
-        MakeFolder("--");
+        MakeIntro(MakeFolder("--"));
 
         Generate();
 
@@ -256,7 +268,7 @@ public class MenuOnlyFolderTests : IDisposable
     [AvaloniaFact]
     public void AThirdDashIsTheUnlistedMarkerOnAFolderNamedWithADash()
     {
-        MakeFolder("---Odd");
+        MakeIntro(MakeFolder("---Odd"));
 
         Generate();
 
@@ -267,8 +279,8 @@ public class MenuOnlyFolderTests : IDisposable
     [AvaloniaFact]
     public void ADoubleAndSingleMarkerCompetingForOneAddressIsReported()
     {
-        MakeFolder("--Footer");
-        MakeFolder("-Footer");
+        MakeIntro(MakeFolder("--Footer"));
+        MakeIntro(MakeFolder("-Footer"));
 
         var tree = DirectoryTraverser.BuildTree(_root, new List<string>(), new List<string>());
         var result = SiteGenerator.Generate(_root, tree, new Dir2SiteModel { Title = "My Site" });
