@@ -33,7 +33,7 @@ public class MarkdownPreviewStalenessTests : IDisposable
     private string PreviewPath => Path.Combine(_dir, ".dir2site", "article", "preview-article.webp");
 
     /// <summary>
-    /// Writes the body only. The sidecar is created once and then left alone, because generating
+    /// Writes the body only. The yaml is created once and then left alone, because generating
     /// previews records their paths in it — and it is exactly those recorded paths that make the
     /// second pass consider the work already done.
     /// </summary>

@@ -9,7 +9,7 @@ using Xunit;
 namespace dir2site.Tests;
 
 /// <summary>
-/// Artifact sidecars are the files users hand-annotate, and this runs over every one of them on
+/// An artifact's yaml is the file users hand-annotate, and this runs over every one of them on
 /// every generate — so what it leaves behind matters more than what it writes.
 /// </summary>
 public class UpdatePreviewFieldsTests : IDisposable
@@ -24,7 +24,7 @@ public class UpdatePreviewFieldsTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private string WriteSidecar(string content)
+    private string WriteYaml(string content)
     {
         var path = Path.Combine(_dir, "photo.jpg.yaml");
         File.WriteAllText(path, content);
@@ -48,7 +48,7 @@ public class UpdatePreviewFieldsTests : IDisposable
     [Fact]
     public void PreservesCommentsBlockScalarsAndUnknownKeys()
     {
-        var path = WriteSidecar(HandAnnotated);
+        var path = WriteYaml(HandAnnotated);
 
         YamlParser.UpdatePreviewFields(path, "new-preview.jpg", "new-large.jpg");
 
@@ -69,7 +69,7 @@ public class UpdatePreviewFieldsTests : IDisposable
     [Fact]
     public void AddsMissingKeysWithoutDisturbingTheRest()
     {
-        var path = WriteSidecar(
+        var path = WriteYaml(
             """
             type: photo
             # keep me
@@ -88,7 +88,7 @@ public class UpdatePreviewFieldsTests : IDisposable
     [Fact]
     public void UnchangedValues_LeaveTheFileByteIdenticalAndUntouched()
     {
-        var path = WriteSidecar(HandAnnotated);
+        var path = WriteYaml(HandAnnotated);
         var before = File.ReadAllText(path);
         var stamp = File.GetLastWriteTimeUtc(path);
         Thread.Sleep(20);
@@ -96,7 +96,7 @@ public class UpdatePreviewFieldsTests : IDisposable
         YamlParser.UpdatePreviewFields(path, "old-preview.jpg", "old-preview-large.jpg");
 
         Assert.Equal(before, File.ReadAllText(path));
-        // SiteGenerator compares sidecar mtime against the generated page to decide what to
+        // SiteGenerator compares the yaml's mtime against the generated page to decide what to
         // rebuild, so a no-op write would cause pointless regeneration.
         Assert.Equal(stamp, File.GetLastWriteTimeUtc(path));
     }
@@ -104,7 +104,7 @@ public class UpdatePreviewFieldsTests : IDisposable
     [Fact]
     public void UnparseableFile_StillGetsItsPreviewKeys()
     {
-        var path = WriteSidecar("type: photo\n  : broken indentation [\n");
+        var path = WriteYaml("type: photo\n  : broken indentation [\n");
 
         YamlParser.UpdatePreviewFields(path, "p.jpg", "pl.jpg");
 

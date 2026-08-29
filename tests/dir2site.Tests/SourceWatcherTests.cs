@@ -130,7 +130,7 @@ public class SourceWatcherTests : IDisposable
         Assert.Equal(Path_("Photos", "1890s"), move.From);
 
         // The point of the exercise: two hundred photos must not become two hundred renames, each
-        // wanting a sidecar and a preview folder shuffled.
+        // wanting a yaml and a preview folder shuffled.
         Assert.DoesNotContain(changes, c => c.Path.Contains("Portrait.jpg", StringComparison.Ordinal));
     }
 
@@ -190,7 +190,7 @@ public class SourceWatcherTests : IDisposable
     [Fact]
     public void EditingAYamlByHand_IsReported()
     {
-        // Sidecars are excluded from the tree walk as metadata, and deliberately not excluded here:
+        // Yaml files are excluded from the tree walk as metadata, and deliberately not excluded here:
         // a hand-edited yaml is exactly the change #62 exists to surface.
         MakeFile("Photos/Portrait.jpg.yaml", "caption: Portrait\n");
 
@@ -242,7 +242,7 @@ public class SourceWatcherTests : IDisposable
         // Disposing does not wait for a settle already running, so one can be part-way through when
         // the watcher is let go. That matters because the caller disposes when the project changes,
         // having just cleared the lists the batch would land in — so the previous project's paths
-        // were carried through in the new one: sidecars moved and preview folders deleted in a
+        // were carried through in the new one: yaml files moved and preview folders deleted in a
         // project nobody had open.
         //
         // The disposal is placed inside the window rather than raced into it, so this asserts the

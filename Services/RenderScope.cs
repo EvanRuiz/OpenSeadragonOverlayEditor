@@ -171,7 +171,7 @@ public sealed class RenderScope
 
         if (FindFolderNode(tree, directoryRoot, siteRoot, folder) is not { } node) return false;
 
-        // And so is an artifact that has changed sides. `type:` is a sidecar key, and which side of
+        // And so is an artifact that has changed sides. `type:` is a yaml key, and which side of
         // the prev/next flag an artifact falls on is decided by its type — so editing it moves the
         // chain without adding, removing or renaming anything. Every refusal above passes: the path
         // exists, its page exists, and the watcher calls it an ordinary update.
@@ -276,7 +276,7 @@ public sealed class RenderScope
 
     /// <summary>Where an artifact's own page lives, site-relative, or null if it isn't one.</summary>
     /// <remarks>
-    /// The sidecar is the case to get right, because it is the case: there is no caption editor in
+    /// The yaml is the case to get right, because it is the case: there is no caption editor in
     /// the app, so editing a caption <em>is</em> writing <c>Portrait.jpg.yaml</c>, and the watcher
     /// reports the path that was written. Taking the stem of that name straight off gives
     /// "Portrait.jpg", which is not a page, so every caption edit failed the "has a page already"
@@ -296,7 +296,7 @@ public sealed class RenderScope
         return folder is "." or "" ? stem : $"{folder}/{stem}";
     }
 
-    /// <summary>The artifact a written path belongs to — itself, or the file its sidecar names.</summary>
+    /// <summary>The artifact a written path belongs to — itself, or the file its yaml names.</summary>
     private static string ArtifactPathOf(string path)
     {
         var ext = Path.GetExtension(path);

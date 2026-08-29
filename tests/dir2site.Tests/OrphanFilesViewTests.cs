@@ -44,9 +44,9 @@ public class OrphanFilesViewTests
     }
 
     [AvaloniaFact]
-    public void ASidecarIsOfferedButNotTicked()
+    public void AYamlIsOfferedButNotTicked()
     {
-        // A sidecar holds a caption, credit and date somebody typed. If the artifact was renamed
+        // A yaml holds a caption, credit and date somebody typed. If the artifact was renamed
         // rather than deleted, it is the only surviving copy of them — the new file gets a
         // scaffolded one with the filename as its caption and nothing else. Removing it is still
         // offered, because after a real deletion it is clutter; it just isn't the default.
@@ -55,10 +55,10 @@ public class OrphanFilesViewTests
             OrphanKind.Source);
         var vm = (OrphanFilesViewModel)view.DataContext!;
 
-        var sidecar = vm.Items.Single(i => i.Path.EndsWith(".yaml", StringComparison.Ordinal));
+        var yaml = vm.Items.Single(i => i.Path.EndsWith(".yaml", StringComparison.Ordinal));
         var previews = vm.Items.Single(i => !i.Path.EndsWith(".yaml", StringComparison.Ordinal));
 
-        Assert.False(sidecar.IsSelected);
+        Assert.False(yaml.IsSelected);
 
         // Previews are pure output — we can make those again, so they keep the old default.
         Assert.True(previews.IsSelected);

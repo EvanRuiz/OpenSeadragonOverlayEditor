@@ -85,7 +85,7 @@ public static class PreviewGenerator
     /// a backup or syncing down from cloud storage can land a file with its original, older
     /// timestamp, and the stale thumbnail survives. Catching that needs a recorded fingerprint of
     /// the source, which conflicts with hand-written preview paths and would add keys to every
-    /// sidecar; the manual Rescan and a touched file both remain a way out.
+    /// yaml; the manual Rescan and a touched file both remain a way out.
     /// </remarks>
     public static bool PreviewIsOlderThanSource(string sourceFileDir, string previewRelativePath, string sourceFile) =>
         IsOlderThan(

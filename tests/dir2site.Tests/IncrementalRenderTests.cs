@@ -323,9 +323,9 @@ public class IncrementalRenderTests : IDisposable
     }
 
     [AvaloniaFact]
-    public void EditingASidecar_NarrowsJustAsAnArtifactEditDoes()
+    public void EditingAYaml_NarrowsJustAsAnArtifactEditDoes()
     {
-        // How a caption is edited: there is no editor in the app, so it means writing the sidecar,
+        // How a caption is edited: there is no editor in the app, so it means writing the yaml,
         // and the watcher reports the path that was written. Taking the stem of "Portrait.jpg.yaml"
         // gives "Portrait.jpg", which is not a page — so every caption edit failed the "has a page
         // already" test and took its whole folder, which is the one case this was measured against.
@@ -346,7 +346,7 @@ public class IncrementalRenderTests : IDisposable
     [AvaloniaFact]
     public void AnArtifactJoiningTheChain_TakesTheFolder()
     {
-        // `type:` is a sidecar key, and which side of the prev/next flag an artifact falls on is
+        // `type:` is a yaml key, and which side of the prev/next flag an artifact falls on is
         // decided by its type — so editing it moves the chain without anything being added, removed
         // or renamed. Every other refusal passes: the path exists, its page exists, and the watcher
         // calls it an ordinary update.

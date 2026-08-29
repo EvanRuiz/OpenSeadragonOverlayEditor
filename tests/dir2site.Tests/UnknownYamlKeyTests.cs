@@ -11,7 +11,7 @@ using Xunit;
 namespace dir2site.Tests;
 
 /// <summary>
-/// The deserializer ignores keys it doesn't recognise, which keeps an unfamiliar sidecar readable
+/// The deserializer ignores keys it doesn't recognise, which keeps an unfamiliar yaml readable
 /// but means a misspelled setting is accepted and then quietly does nothing — the artifact looks
 /// exactly as if the line had never been written. These pin the warning that says otherwise, and
 /// the route it takes to somewhere a person will see it.
@@ -29,7 +29,7 @@ public class UnknownYamlKeyTests : IDisposable
     }
 
     /// <summary>
-    /// Writes a photo and its sidecar, and returns what parsing had to say about it. The artifact
+    /// Writes a photo and its yaml, and returns what parsing had to say about it. The artifact
     /// itself must parse — everything here is about a file that loaded and still isn't doing what
     /// it says, so anything landing in the error list would mean the test set itself up wrong.
     /// </summary>

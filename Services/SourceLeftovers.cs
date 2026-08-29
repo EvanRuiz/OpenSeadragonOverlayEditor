@@ -8,7 +8,7 @@ using System.Linq;
 namespace dir2site.Services;
 
 /// <summary>
-/// Finds sidecars and preview folders whose artifact is no longer beside them.
+/// Finds yaml files and preview folders whose artifact is no longer beside them.
 /// </summary>
 /// <remarks>
 /// Both are named after the file they belong to, so a rename or a deletion carried out while
@@ -20,16 +20,16 @@ namespace dir2site.Services;
 /// </remarks>
 public static class SourceLeftovers
 {
-    /// <param name="Sidecars">Sidecar files in <c>name.ext.yaml</c> form with no <c>name.ext</c> beside them.</param>
+    /// <param name="YamlFiles">Yaml files in <c>name.ext.yaml</c> form with no <c>name.ext</c> beside them.</param>
     /// <param name="PreviewDirs">Folders under <c>.dir2site/</c> named for a stem nothing in the folder has.</param>
     public sealed record Analysis(
-        IReadOnlyList<string> Sidecars,
+        IReadOnlyList<string> YamlFiles,
         IReadOnlyList<string> PreviewDirs);
 
     public static readonly Analysis Nothing = new([], []);
 
     /// <summary>
-    /// What is left over in one directory: sidecars and preview folders whose artifact is gone.
+    /// What is left over in one directory: yaml files and preview folders whose artifact is gone.
     /// </summary>
     public static Analysis InDirectory(string dir)
     {
@@ -43,13 +43,13 @@ public static class SourceLeftovers
         // deliberately not considered: beside a missing Portrait.jpg it is indistinguishable from a
         // hand-written file that happens to share the name, and there is no way to tell which
         // without asking.
-        var sidecars = files
-            .Where(f => IsCurrentConventionSidecar(Path.GetFileName(f))
+        var yamlFiles = files
+            .Where(f => IsCurrentConventionYaml(Path.GetFileName(f))
                      && !present.Contains(Path.GetFileNameWithoutExtension(Path.GetFileName(f))))
             .ToList();
 
         var stems = new HashSet<string>(
-            files.Where(f => !DirectoryTraverser.IsSidecarName(Path.GetFileName(f)))
+            files.Where(f => !DirectoryTraverser.IsYamlName(Path.GetFileName(f)))
                  .Select(Path.GetFileNameWithoutExtension)!,
             StringComparer.OrdinalIgnoreCase);
 
@@ -66,10 +66,10 @@ public static class SourceLeftovers
             catch { /* unreadable is not the same as empty; say nothing about this folder */ }
         }
 
-        return new Analysis(sidecars, previewDirs);
+        return new Analysis(yamlFiles, previewDirs);
     }
 
-    private static bool IsCurrentConventionSidecar(string name)
+    private static bool IsCurrentConventionYaml(string name)
     {
         var ext = Path.GetExtension(name);
         if (!ext.Equals(".yaml", StringComparison.OrdinalIgnoreCase) &&
@@ -81,7 +81,7 @@ public static class SourceLeftovers
     }
 
     /// <summary>
-    /// Takes away the sidecar and previews belonging to an artifact the user deleted.
+    /// Takes away the yaml and previews belonging to an artifact the user deleted.
     /// </summary>
     /// <remarks>
     /// Only ever called for a deletion the watcher saw happen, which is what makes doing it rather
@@ -100,10 +100,10 @@ public static class SourceLeftovers
         // user wrote and named for the same subject, and nothing here can tell the difference.
         foreach (var ext in new[] { ".yaml", ".yml" })
         {
-            var sidecar = Path.Combine(dir, name + ext);
-            if (!File.Exists(sidecar)) continue;
+            var yaml = Path.Combine(dir, name + ext);
+            if (!File.Exists(yaml)) continue;
 
-            try { File.Delete(sidecar); removed = true; } catch { /* leave it for the sweep */ }
+            try { File.Delete(yaml); removed = true; } catch { /* leave it for the sweep */ }
         }
 
         var previews = Path.Combine(dir, ".dir2site", stem);
@@ -123,7 +123,7 @@ public static class SourceLeftovers
         foreach (var dir in Walk(root))
         {
             var analysis = InDirectory(dir);
-            found.AddRange(analysis.Sidecars);
+            found.AddRange(analysis.YamlFiles);
             found.AddRange(analysis.PreviewDirs);
         }
 

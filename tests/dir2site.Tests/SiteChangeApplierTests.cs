@@ -51,7 +51,7 @@ public class SiteChangeApplierTests : IDisposable
     }
 
     /// <summary>
-    /// A fake photo, its sidecar, and the preview files generation would have produced — so the
+    /// A fake photo, its yaml, and the preview files generation would have produced — so the
     /// copy stage has something to carry into the site, which is where the weight of a real project
     /// actually is.
     /// </summary>

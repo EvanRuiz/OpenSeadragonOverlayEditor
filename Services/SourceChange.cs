@@ -214,7 +214,7 @@ public static class SourceChangeCoalescer
     /// <remarks>
     /// Moving a folder of two hundred photos can report the folder <em>and</em> every file inside
     /// it, depending on the platform. The folder move already says everything: its contents went
-    /// with it, their sidecars and previews went with them, and nothing inside needs handling of its
+    /// with it, their yaml files and previews went with them, and nothing inside needs handling of its
     /// own. Left in, the batch would claim two hundred renames that each want a yaml and a preview
     /// folder shuffled — work that has already happened, against paths that no longer exist.
     ///

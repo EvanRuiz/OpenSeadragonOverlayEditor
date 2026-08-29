@@ -142,7 +142,7 @@ public class WatchedProjectTests : IDisposable
 
         var arrived = await Until(() => File.Exists(At("Photographs", "Headshot.jpg.yaml")));
 
-        Assert.True(arrived, "the sidecar never followed the rename");
+        Assert.True(arrived, "the yaml never followed the rename");
 
         // The caption the user wrote came with it rather than being re-derived from the new name.
         Assert.Contains("Grandmother, 1912",
@@ -367,12 +367,12 @@ public class WatchedProjectTests : IDisposable
     [AvaloniaFact]
     public async Task TheScanWritingYaml_DoesNotSetTheWatcherOffForever()
     {
-        // The hazard of watching a folder you also write to. Scanning brings sidecars up to the
+        // The hazard of watching a folder you also write to. Scanning brings yaml files up to the
         // current key set, and those writes land in the folder being watched — so without the guard
         // the app would scan, write, notice its own write, and scan again without end.
         var photos = Directory.CreateDirectory(At("Photographs")).FullName;
 
-        // Deliberately sparse sidecars, so the scan has keys to add and really does write.
+        // Deliberately sparse yaml files, so the scan has keys to add and really does write.
         File.WriteAllText(Path.Combine(photos, "Portrait.jpg"), "jpeg");
         File.WriteAllText(Path.Combine(photos, "Portrait.jpg.yaml"), "type: photo\n");
         File.WriteAllText(Path.Combine(photos, "Landscape.jpg"), "jpeg");

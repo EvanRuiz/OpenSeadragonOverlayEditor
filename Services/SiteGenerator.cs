@@ -715,7 +715,7 @@ public static class SiteGenerator
 
     /// <summary>
     /// Passes on what the traverser found wrong with each artifact's yaml. It collected these while
-    /// building the tree and nothing had ever read them, so a sidecar that failed to parse — or a
+    /// building the tree and nothing had ever read them, so a yaml that failed to parse — or a
     /// setting spelled slightly wrong — was silent everywhere.
     /// </summary>
     private static void ReportYamlNotes(
