@@ -103,4 +103,25 @@ public class CommandLineTests
     {
         Assert.Equal(CommandLineMode.Invalid, CommandLine.Parse(["/tmp/site"]).Mode);
     }
+
+    [Fact]
+    public void ForceCleanIsOffUnlessAskedFor()
+    {
+        Assert.False(CommandLine.Parse(["--generate", "/tmp/x"]).ForceClean);
+        Assert.True(CommandLine.Parse(["--generate", "/tmp/x", "--force-clean"]).ForceClean);
+
+        // Order does not matter, and it does not swallow the folder the way --generate can.
+        var before = CommandLine.Parse(["--force-clean", "--generate", "/tmp/x"]);
+        Assert.True(before.ForceClean);
+        Assert.Equal(CommandLineMode.Generate, before.Mode);
+    }
+
+    [Fact]
+    public void TheUsageSaysWhatForceCleanDeletes()
+    {
+        // It removes files in the user's own folder with no prompt, so the one place it is described
+        // has to say so rather than calling it a tidy-up.
+        Assert.Contains("--force-clean", CommandLine.Usage);
+        Assert.Contains("without", CommandLine.Usage);
+    }
 }

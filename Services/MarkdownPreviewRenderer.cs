@@ -85,6 +85,7 @@ public static partial class MarkdownPreviewRenderer
         WriteWebp(png, previewLargePath, LargeWidth, LargeHeight);
         WriteWebp(png, previewPath, SmallWidth, SmallHeight);
 
+        PreviewGenerator.WriteStamp(mdFile);
         return (previewFileName, previewLargeFileName);
     }
 

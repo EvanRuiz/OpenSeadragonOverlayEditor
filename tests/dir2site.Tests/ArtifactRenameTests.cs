@@ -59,6 +59,43 @@ public class ArtifactRenameTests : IDisposable
 
     private static string Yaml(string artifactPath) => File.ReadAllText(artifactPath + ".yaml");
 
+    /// <summary>
+    /// The three shapes a rename comes in. The stamp is keyed on the file's folder as well as its
+    /// stem, so a move across folders lands it somewhere the same-folder case never exercises.
+    /// </summary>
+    public static TheoryData<string, string> Renames() => new()
+    {
+        { "Headshot.jpg", "renamed where it stands" },
+        { "Archive/Portrait.jpg", "moved to another folder" },
+        { "Archive/Headshot.jpg", "moved and renamed at once" },
+    };
+
+    [Theory]
+    [MemberData(nameof(Renames))]
+    public void ARenameCarriesTheSourceStamp(string destination, string shape)
+    {
+        // A rename does not touch the file's bytes or its timestamp, so what the stamp records is
+        // still true of it — only its name has to follow. Stranded, the artifact arrives at its new
+        // name with no record of what its previews were made from and is rebuilt once for nothing,
+        // while the old name keeps a stamp describing previews that have moved out from under it.
+        _ = shape;
+        var source = MakePhoto("Portrait.jpg", "Aunt Mary, 1912");
+        PreviewGenerator.WriteStamp(source);
+
+        var before = File.ReadAllText(PreviewGenerator.StampPath(source));
+        var target = At(destination.Split('/'));
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+
+        File.Move(source, target);
+        ArtifactRename.Apply(source, target);
+
+        Assert.False(File.Exists(PreviewGenerator.StampPath(source)), "the old name kept a stamp");
+        Assert.Equal(before, File.ReadAllText(PreviewGenerator.StampPath(target)));
+
+        // And it still describes the file, so the rename costs no re-render.
+        Assert.False(PreviewGenerator.SourceIsNotWhatWeBuiltFrom(target));
+    }
+
     // ---- the yaml and its assets ---------------------------------------
 
     [Fact]

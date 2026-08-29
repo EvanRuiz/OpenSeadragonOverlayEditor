@@ -93,4 +93,15 @@ public class Artifact
     // Runtime Only — not persisted to YAML
     [YamlIgnore] public string? RootFolder {get; set;}
     [YamlIgnore] public string? TraversalRoot {get; set;}
+
+    /// <summary>
+    /// True when this run wrote the yaml itself, because there wasn't one.
+    /// </summary>
+    /// <remarks>
+    /// Which is as good as saying the app has never seen this file: the yaml is the only record
+    /// it keeps of an artifact, so a scaffolded one means nothing on disk described what is there.
+    /// Previews sitting beside it therefore describe something else, and the previews stage is told
+    /// not to trust them. Never a yaml key — it is a fact about this parse, not about the file.
+    /// </remarks>
+    [YamlIgnore] public bool ScaffoldedYaml {get; set;}
 }

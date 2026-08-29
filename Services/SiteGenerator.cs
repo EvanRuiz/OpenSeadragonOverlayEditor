@@ -71,7 +71,7 @@ public static class SiteGenerator
         // Only ever read to build the menu — page generation walks each node's own children — so the
         // '--' folders are dropped here rather than filtered again on every page.
         var menuFolders = rootItem.Children
-            .Where(c => c.IsDirectory && !IsUnlisted(c))
+            .Where(c => c.IsDirectory && !IsUnlisted(c) && HasPublishableContent(c))
             .OrderBy(c => IsMenuOnly(c) ? 1 : 0)
             .ToList();
 
@@ -95,6 +95,7 @@ public static class SiteGenerator
 
         ReportYamlNotes(rootItem, errors, warnings);
         tracker.SetPageTotal(CountPages(rootItem));
+        KeepUnreadableArtifactPages(rootItem, directoryRoot, siteRoot, ledger);
         var homePromotions = CollectHomePromotions(rootItem, directoryRoot);
         var footerColumns = BuildFooterColumns(config, directoryRoot, rootItem, warnings);
         GeneratePage(rootItem, siteRoot, directoryRoot, config, menuFolders, 0,
@@ -137,13 +138,38 @@ public static class SiteGenerator
         if (ledger.IsIncomplete)
         {
             warnings.Add(
-                "Part of the project folder could not be read, so nothing was offered for removal " +
-                "this time. Files left over from deleted content are still in _site — generate " +
-                "again once the folder is readable.");
+                "Part of the project folder could not be read, so nothing was removed or offered " +
+                "for removal this time. Files left over from deleted content are still in _site — " +
+                "generate again once the folder is readable.");
         }
         else
         {
-            orphans = FindOrphans(ledger);
+            // Two different questions, and they used to be asked as one. A page this run didn't want
+            // but a previous run wrote is our own superseded output, and taking it away needs no more
+            // permission than overwriting it did. A file we have no record of writing is somebody
+            // else's, and that is the only thing worth putting in front of the user.
+            var (superseded, foreign) = FindOrphans(ledger, GeneratedLastTime(directoryRoot));
+
+            var stillThere = new List<string>();
+
+            if (superseded.Count > 0)
+            {
+                var (removed, failures) = RemoveOrphans(siteRoot, superseded, progress);
+                foreach (var failure in failures) errors.Add(failure);
+                if (removed > 0)
+                    progress.Report($"Removed {removed} file(s) the site no longer has a use for");
+
+                // A locked file is ordinary on Windows and the delete is allowed to fail. What must
+                // not happen is that it drops out of the record: the next run would find a file it
+                // has no note of writing and ask the user about a page it wrote itself, which is the
+                // whole thing this record exists to stop. Keeping it recorded leaves it superseded,
+                // so the next run simply tries the delete again.
+                stillThere.AddRange(superseded.Where(rel => File.Exists(
+                    Path.Combine(siteRoot, rel.Replace('/', Path.DirectorySeparatorChar)))));
+            }
+
+            orphans = foreign;
+            WriteGeneratedManifest(directoryRoot, siteRoot, ledger, stillThere);
         }
 
         var summary = orphans.Count == 0
@@ -165,7 +191,9 @@ public static class SiteGenerator
         var count = 1;
         foreach (var child in node.Children)
         {
-            if (child.IsDirectory) count += CountPages(child);
+            // The same folders GeneratePage will walk into. A count that included the ones it skips
+            // would leave the progress bar short of its total for the whole run.
+            if (child.IsDirectory) count += HasPublishableContent(child) ? CountPages(child) : 0;
             else if (child.Artifact != null && child.Artifact.Type != ArtifactType.Video) count++;
         }
         return count;
@@ -240,12 +268,18 @@ public static class SiteGenerator
         //
         // Render is a local function because its body needs every local declared above it; lifting
         // it out properly would mean threading fifteen arguments through.
-        if (scope.ShouldRender(siteRoot, indexHtmlPath)) Render();
+        // Nothing to draw, and something already drawn: leave it. A folder reaches this having
+        // passed HasPublishableContent, so an empty one never gets here at all — this is the folder
+        // whose artifacts would not parse, where rendering means replacing the last good page with
+        // an empty one rather than filling a gap.
+        var nothingToDraw = node.UnreadableArtifacts.Count > 0 && !HasRenderableContent(node);
+
+        if (!nothingToDraw && scope.ShouldRender(siteRoot, indexHtmlPath)) Render();
         else tracker.PageDone(Change.None);
 
         ReportPublicNameCollisions(node, warnings);
 
-        foreach (var child in node.Children.Where(c => c.IsDirectory))
+        foreach (var child in node.Children.Where(c => c.IsDirectory && HasPublishableContent(c)))
         {
             var childOutputDir = Path.Combine(outputDir, PublicName(child.Name));
             GeneratePage(child, childOutputDir, directoryRoot, config, menuFolders,
@@ -322,7 +356,7 @@ public static class SiteGenerator
             var breadcrumbs = BuildBreadcrumbs(prefix, depth, ancestorNames, PublicName(node.Name));
 
             var items = node.Children
-                .Where(child => !IsMenuOnly(child))
+                .Where(child => !IsMenuOnly(child) && HasPublishableContent(child))
                 // childAncestors is the chain this page's children live under — the same list their own
                 // pages take their breadcrumbs from, so a card's title and the page it opens agree.
                 .Select(child => (object)BuildCardModel(
@@ -602,7 +636,13 @@ public static class SiteGenerator
     /// </summary>
     private static string ItemCountBadge(DirectoryTreeItem folder)
     {
-        var count = folder.Children.Count(c => !IsMenuOnly(c));
+        var count = folder.Children.Count(c => !IsMenuOnly(c) && HasPublishableContent(c));
+
+        // A folder with no cards still reaches here when it has an introduction, which is content
+        // and gets a card of its own accordingly. "0 items" would be true of the cards and wrong
+        // about the folder, so it says nothing at all and the template leaves the badge off.
+        if (count == 0) return string.Empty;
+
         return count == 1 ? "1 item" : $"{count} items";
     }
 
@@ -738,6 +778,59 @@ public static class SiteGenerator
     }
 
     /// <summary>
+    /// Claims the pages already published for artifacts whose yaml would not parse this run.
+    /// </summary>
+    /// <remarks>
+    /// A file that failed to parse is dropped from the tree, so nothing renders it and nothing keeps
+    /// it — and the sweep then takes the pages a previous run wrote for it, silently, because they
+    /// are the generator's own output and unclaimed. The artifact is sitting right there and its
+    /// pages come off the site over a typo.
+    ///
+    /// So the run claims what it already published for that one artifact and carries on. It is not
+    /// blind here — it read the directory, it has the filename, it knows which file failed and says
+    /// so — and the response is scoped to that knowledge. The first attempt at this reached for
+    /// <c>MarkIncomplete</c>, which switches the sweep off for the entire project, on the reasoning
+    /// that not deleting is the safe direction. It is not, and the two directions are not
+    /// symmetrical: <c>_site</c> is output, so deleting too much is rewritten by the next run, while
+    /// leaving too much means a page the user took down stays at its public address on the next
+    /// deploy — over an unrelated typo, in a different folder, with nothing connecting the two.
+    /// </remarks>
+    private static void KeepUnreadableArtifactPages(
+        DirectoryTreeItem node, string directoryRoot, string siteRoot, SiteLedger ledger)
+    {
+        if (node.UnreadableArtifacts.Count > 0)
+        {
+            var folderRel = Path.GetRelativePath(directoryRoot, node.FullPath);
+            var folder = folderRel is "." ? siteRoot : Path.Combine(siteRoot, PublicRelativePath(folderRel));
+
+            // Where an artifact's pages are depends on how many the folder had, which is the rule
+            // SoleArtifact states: a folder holding one publishes as that one, at the folder's own
+            // address, with no directory of its own anywhere. Reconstructing {folder}/{stem}/ found
+            // nothing there, read the miss as "never published", and claimed nothing — while the
+            // folder went on to render empty over the very page it should have been protecting.
+            //
+            // With nothing left to draw, the honest claim is the folder as it stands: that is the
+            // last version built when the artifacts could still be read, and this run has nothing
+            // better to offer.
+            var whole = !HasRenderableContent(node);
+
+            foreach (var published in whole
+                ? [folder]
+                : node.UnreadableArtifacts.Select(f => Path.Combine(folder, Path.GetFileNameWithoutExtension(f))))
+            {
+                try
+                {
+                    foreach (var kept in SourceListing.FilesRecursive(published)) ledger.Keep(kept);
+                }
+                catch (DirectoryNotFoundException) { /* never published; nothing to hold on to */ }
+                catch { ledger.MarkIncomplete(); }
+            }
+        }
+
+        foreach (var child in node.Children) KeepUnreadableArtifactPages(child, directoryRoot, siteRoot, ledger);
+    }
+
+    /// <summary>
     /// Warns when two siblings publish to the same place. A folder's markers are stripped from its
     /// published name, so "Newspapers+" and a plain "Newspapers" beside it both become
     /// /Newspapers/; and an artifact publishes under its stem, so "Foo.jpg" lands on a sibling
@@ -780,6 +873,46 @@ public static class SiteGenerator
 
     private static bool IsHomePromoted(DirectoryTreeItem item) =>
         item.IsDirectory && item.Name.Length > 1 && item.Name[^1] == HomePromotedSuffix;
+
+    /// <summary>
+    /// Whether a folder has anything for the site to show — in it, or anywhere beneath it.
+    /// </summary>
+    /// <remarks>
+    /// The other three questions on this page are about a folder's name. This one is about what is
+    /// in it, and it is asked wherever a folder is about to be published: as a card, as a menu
+    /// entry, as a promotion to the home page, and as a page of its own. Nothing used to ask it, so
+    /// emptying a folder in Finder — which leaves the hidden <c>.dir2site</c> behind, and so leaves
+    /// the folder — published a card reading "0 items" and an empty page under it.
+    ///
+    /// "Anything" is deliberately broad. An <c>index.md</c> counts, because it is prose the folder's
+    /// page renders and it is deliberately not one of the folder's children — a count would call
+    /// such a folder empty and it plainly isn't. A menu-only child counts, because it has a page and
+    /// the menu leads to it. And the question recurses, because a folder whose own children are all
+    /// folders is the ordinary way to organise a site.
+    /// </remarks>
+    private static bool HasPublishableContent(DirectoryTreeItem item) =>
+        (item.IsDirectory && item.UnreadableArtifacts.Count > 0) || HasRenderableContent(item);
+
+    /// <summary>
+    /// Whether a folder holds anything this run could actually put on a page.
+    /// </summary>
+    /// <remarks>
+    /// The narrower half of the question above, and the two come apart for exactly one folder: one
+    /// whose artifacts this run could not read. It is not empty — that is the whole point of the
+    /// other clause — but there is nothing to draw, and drawing it anyway produces an empty
+    /// collection page. Where the folder published as its single artifact, that page goes over the
+    /// artifact's own, so a typo replaced a photograph with a blank page.
+    /// </remarks>
+    private static bool HasRenderableContent(DirectoryTreeItem item)
+    {
+        if (!item.IsDirectory) return true;
+        if (item.IntroPath != null) return true;
+
+        foreach (var child in item.Children)
+            if (HasPublishableContent(child)) return true;
+
+        return false;
+    }
 
     /// <summary>
     /// The markers instruct the generator; they are not part of the name. None appears in a menu
@@ -906,7 +1039,7 @@ public static class SiteGenerator
         {
             if (child.IsDirectory)
             {
-                if (IsHomePromoted(child))
+                if (IsHomePromoted(child) && HasPublishableContent(child))
                     promoted.Add(new HomePromotion(child, FolderHref(child, directoryRoot), childAncestors));
                 CollectHomePromotions(child, childAncestors, directoryRoot, promoted);
             }
@@ -1479,6 +1612,9 @@ public static class SiteGenerator
 
         public bool Contains(string fullPath) => _kept.ContainsKey(fullPath);
 
+        /// <summary>Every path this run claimed, for the record it leaves behind.</summary>
+        public IEnumerable<string> Kept => _kept.Keys;
+
         /// <summary>
         /// Set when a source folder could not be read, so this run never learned what was in it.
         /// </summary>
@@ -1508,23 +1644,140 @@ public static class SiteGenerator
     /// the generator, and the user confirms before any of it goes. A threshold would eventually
     /// refuse a perfectly real "I deleted most of my site" run.
     /// </remarks>
-    private static IReadOnlyList<string> FindOrphans(SiteLedger ledger)
+    private static (IReadOnlyList<string> Superseded, IReadOnlyList<string> Foreign) FindOrphans(
+        SiteLedger ledger, IReadOnlySet<string> generatedLastTime)
     {
         List<string> files;
-        try { files = [.. Directory.EnumerateFiles(ledger.Root, "*", SearchOption.AllDirectories)]; }
-        catch { return []; }
+        try { files = FilesInTheSite(ledger.Root); }
+        catch { return ([], []); }
 
-        var orphans = new List<string>();
+        var superseded = new List<string>();
+        var foreign = new List<string>();
+
         foreach (var file in files)
         {
             if (ledger.Contains(Path.GetFullPath(file))) continue;
             var rel = Path.GetRelativePath(ledger.Root, file);
             if (IsProtected(rel)) continue;
-            orphans.Add(rel.Replace(Path.DirectorySeparatorChar, '/'));
+
+            var slashed = rel.Replace(Path.DirectorySeparatorChar, '/');
+            (generatedLastTime.Contains(slashed) ? superseded : foreign).Add(slashed);
         }
 
-        orphans.Sort(StringComparer.Ordinal);
-        return orphans;
+        superseded.Sort(StringComparer.Ordinal);
+        foreign.Sort(StringComparer.Ordinal);
+        return (superseded, foreign);
+    }
+
+    /// <summary>
+    /// Every file in the site, without stepping through a symlinked directory.
+    /// </summary>
+    /// <remarks>
+    /// Linking a media folder into the published site rather than copying gigabytes into it is an
+    /// ordinary thing to do, and everything behind that link belongs to the user. A recursive
+    /// enumeration follows it, so their masters arrived here as files with no source and were listed
+    /// as such — which is the exact sentence a dialog uses to get a yes, and <c>--force-clean</c> is
+    /// a yes already given. They are not our output and they are not in the record, so the honest
+    /// answer is not to name them at all rather than to name them and then decline.
+    ///
+    /// The same rule as the leftovers walk, and for the same reason: see
+    /// <see cref="SourceListing.IsLinkedDirectory"/>.
+    /// </remarks>
+    internal static List<string> FilesInTheSite(string root)
+    {
+        var files = new List<string>();
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            files.AddRange(Directory.GetFiles(dir));
+
+            foreach (var child in Directory.GetDirectories(dir))
+                if (!SourceListing.IsLinkedDirectory(child))
+                    pending.Push(child);
+        }
+
+        return files;
+    }
+
+    /// <summary>Where a run records what it put in the site, for the next run's sweep to read.</summary>
+    /// <remarks>
+    /// Beside the project rather than in <c>_site</c>, and the reason is the deploy. Everything in
+    /// <c>_site</c> is publishable output by definition and gets uploaded unless it is on
+    /// <c>PublishIgnore</c>'s list of known clutter by name — a dot prefix alone does not stop it —
+    /// so a manifest kept there would be served at the site's own address, listing every file in it.
+    /// A <c>.dir2site</c> folder in the project is where this app already keeps things about a
+    /// folder that are not part of it, and the walk ignores those wherever it meets them.
+    /// </remarks>
+    internal static string GeneratedManifestPath(string directoryRoot) =>
+        Path.Combine(directoryRoot, ".dir2site", "site-manifest");
+
+    /// <summary>
+    /// Every path the last completed generate wrote, as site-relative forward-slashed names.
+    /// </summary>
+    /// <remarks>
+    /// This is the difference between "we made this and no longer want it" and "somebody put this
+    /// here". Without it the sweep could only guess from the shape of the name, decided that
+    /// everything without a dot in it was ours, and then asked anyway — so a page left behind by a
+    /// deleted folder waited on a dialog, while a hand-placed <c>CNAME</c> was offered for deletion
+    /// on every single run and had to be declined every time.
+    ///
+    /// An empty answer is the honest one for a site generated before this file existed, and it errs
+    /// the safe way: everything unclaimed is treated as somebody else's and offered rather than
+    /// taken. The first run writes the manifest, and the run after it can act.
+    /// </remarks>
+    private static IReadOnlySet<string> GeneratedLastTime(string directoryRoot)
+    {
+        try
+        {
+            var path = GeneratedManifestPath(directoryRoot);
+            if (!File.Exists(path)) return new HashSet<string>();
+
+            return new HashSet<string>(
+                File.ReadAllLines(path).Where(l => l.Length > 0),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // Unreadable is not "we generated nothing" — but it is "we cannot say", and the safe
+            // reading of that is to offer rather than to delete.
+            return new HashSet<string>();
+        }
+    }
+
+    /// <summary>Records what this run put in the site, for the next run's sweep to read.</summary>
+    /// <param name="alsoOurs">
+    /// Paths this run meant to take away and could not. Recorded so they stay on the superseded side
+    /// of the next run's question rather than becoming files nobody admits to writing.
+    /// </param>
+    private static void WriteGeneratedManifest(
+        string directoryRoot, string siteRoot, SiteLedger ledger, IEnumerable<string> alsoOurs)
+    {
+        try
+        {
+            var root = Path.GetFullPath(siteRoot);
+            var paths = ledger.Kept
+                .Select(p => Path.GetRelativePath(root, p).Replace(Path.DirectorySeparatorChar, '/'))
+                .Where(p => !p.StartsWith("..", StringComparison.Ordinal))
+                .Concat(alsoOurs)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(p => p, StringComparer.Ordinal);
+
+            var path = GeneratedManifestPath(directoryRoot);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var content = string.Join(Environment.NewLine, paths) + Environment.NewLine;
+
+            // Written only when it would say something different, like every other file this
+            // generator produces. A record that is rewritten on every run is a file whose timestamp
+            // moves for no reason — and the deploy compares timestamps, so it would be uploaded on
+            // every publish of a site that hadn't changed.
+            if (File.Exists(path) && File.ReadAllText(path) == content) return;
+
+            File.WriteAllText(path, content);
+        }
+        catch { /* without it the next sweep asks instead of acting, which is the safe direction */ }
     }
 
     /// <summary>
@@ -1566,8 +1819,14 @@ public static class SiteGenerator
             //
             // Containment first: "..", being a dot-segment, would otherwise be turned away as a
             // dot-file, which is true but not the thing worth saying about a path escaping _site.
+            //
+            // Not lexical any more, and that is the point. It used to be a StartsWith, which catches
+            // ".." and does not catch a symlink — a path through one is written inside the site while
+            // leading out of it, and reading that check as protection is how the same escape survived
+            // a round of review in the half nobody went back to re-ask about. ResolvesInside walks
+            // the chain, so this is a boundary rather than a spelling test.
             var full = Path.GetFullPath(Path.Combine(root, rel));
-            if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (!SourceListing.ResolvesInside(root, full))
             {
                 errors.Add($"{rel}: not removed — it resolves outside _site.");
                 continue;
@@ -1610,8 +1869,13 @@ public static class SiteGenerator
         try { children = [.. Directory.EnumerateDirectories(dir)]; }
         catch { return; }
 
+        // The tidy walk needs the same rule the naming walk got: a linked directory is somewhere
+        // else, and rmdir-ing empty folders at its target is a write outside the site. Only empty
+        // ones, so nothing of theirs is lost — but linking a media folder into _site is ordinary,
+        // and reaching through it at all is the thing that keeps coming back.
         foreach (var child in children)
-            RemoveEmptyDirectories(child, root);
+            if (!SourceListing.IsLinkedDirectory(child))
+                RemoveEmptyDirectories(child, root);
 
         if (string.Equals(dir, root, StringComparison.Ordinal)) return;
 

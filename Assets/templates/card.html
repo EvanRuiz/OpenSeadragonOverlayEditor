@@ -17,7 +17,10 @@
           {{- else }}
           <div class="card-img-placeholder d-flex align-items-center justify-content-center text-white">
             {{- # A big type glyph stands in for the missing picture better than the word does. }}
-            <i class="bi {{ item.badge_icon }} card-img-placeholder-icon" role="img" aria-label="{{ item.badge | html.escape }}"></i>
+            {{- # Decorative, and deliberately so: the badge below already says in words what this }}
+            {{- # draws, and a folder with no cards to count has no badge at all — which used to }}
+            {{- # leave role="img" with an empty name, announced as an unlabelled image. }}
+            <i class="bi {{ item.badge_icon }} card-img-placeholder-icon" aria-hidden="true"></i>
           </div>
           {{- end }}
           <div class="card-body">
@@ -32,13 +35,13 @@
             {{- if item.credit != "" }}
             <p class="card-text text-body-secondary small mb-2">{{ item.credit | html.escape }}</p>
             {{- end }}
-            {{ include 'badge' item.badge item.badge_icon }}
+            {{- if item.badge != "" }}{{ include 'badge' item.badge item.badge_icon }}{{ end }}
             {{- if item.url_text != "" && item.video_url != "" }}
             <a class="video-source-link small ms-2" href="{{ item.video_url | html.escape }}" target="_blank" rel="noopener noreferrer">{{ item.url_text | html.escape }}</a>
             {{- end }}
             {{- else }}
             <h5 class="card-title"><a href="{{ item.href | html.escape }}" class="stretched-link text-decoration-none text-body">{{ item.caption | html.escape }}</a></h5>
-            {{ include 'badge' item.badge item.badge_icon }}
+            {{- if item.badge != "" }}{{ include 'badge' item.badge item.badge_icon }}{{ end }}
             {{- end }}
           </div>
         </div>

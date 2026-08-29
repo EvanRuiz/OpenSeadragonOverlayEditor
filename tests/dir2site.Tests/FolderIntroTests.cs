@@ -199,7 +199,7 @@ public class FolderIntroTests : IDisposable
 
     /// <summary>
     /// Special-cased all the way down: an introduction is prose, so there is nothing to caption,
-    /// credit or date, and the scan must not write it a settings file nobody asked for.
+    /// credit or date, and the scan must not write it a yaml nobody asked for.
     /// </summary>
     [AvaloniaFact]
     public void NoYamlIsWrittenForAnIntro()
